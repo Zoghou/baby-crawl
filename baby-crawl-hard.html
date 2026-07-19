@@ -92,6 +92,9 @@
     background: var(--accent); color: #fff;
     border: 3px solid var(--ink); border-bottom-width: 6px;
     border-radius: 14px; cursor: pointer;
+    /* Without this, mobile browsers hold the first tap back to watch for a
+       double-tap-to-zoom, so the button seems to need two taps. */
+    touch-action: manipulation;
   }
   button:active { transform: translateY(3px); border-bottom-width: 3px; }
   .tiny { font-size: 13px; opacity: .7; }
@@ -527,7 +530,9 @@ function update(dt) {
   b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y + b.vy * dt));
   resolveFurniture(b);
 
-  b.wobble += Math.hypot(b.vx, b.vy) * dt * 0.42;
+  // Slow, deliberate limb swing — a real baby crawl, not a sprint. (Tuned so
+  // the legs cycle ~2x/sec at full speed rather than blurring.)
+  b.wobble += Math.hypot(b.vx, b.vy) * dt * 0.04;
   if (ax !== 0) b.face = ax > 0 ? 1 : -1;
 
   // --- item pickup ---
@@ -697,7 +702,9 @@ function showMap() {
 }
 
 function advanceRoom() {
-  document.getElementById('mapScreen').classList.add('hidden');
+  const map = document.getElementById('mapScreen');
+  if (map.classList.contains('hidden')) return;   // ignore stray double-taps
+  map.classList.add('hidden');
   buildLevel(state.level + 1);
   running = true;
   last = performance.now();
