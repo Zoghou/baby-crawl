@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baby's First Crawl</title>
+<style>
+  :root {
+    --bg: #fdf6ee;
+    --card: #fff;
+    --ink: #2e2a26;
+    --muted: #6f665e;
+    --line: #e8ddd0;
+    --accent: #d9705f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917;
+      --card: #262220;
+      --ink: #f2ece5;
+      --muted: #a9a099;
+      --line: #3a3330;
+      --accent: #e88a78;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 48px 20px 64px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin: 0 0 .3em; letter-spacing: -.02em; }
+  .lede { color: var(--muted); margin: 0 0 2.5em; }
+  .card {
+    display: block;
+    padding: 20px 22px;
+    margin-bottom: 14px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color .15s, transform .15s;
+  }
+  .card:hover, .card:focus-visible {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+  .card h2 { margin: 0 0 .25em; font-size: 1.1rem; color: var(--accent); }
+  .card p { margin: 0; color: var(--muted); font-size: .93rem; }
+  .controls {
+    margin-top: 2.5em;
+    padding-top: 1.5em;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: .93rem;
+  }
+  kbd {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font: inherit;
+    font-size: .88em;
+    color: var(--ink);
+  }
+  a.src { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>👶 Baby's First Crawl</h1>
+  <p class="lede">Baby is off across the house hunting for toys — dodging furniture, and putting <em>everything</em> in their mouth. Three variants, pick one.</p>
+
+  <a class="card" href="baby-crawl.html">
+    <h2>Original →</h2>
+    <p>The 2D game. 60 seconds a room, gentle on the hazards.</p>
+  </a>
+
+  <a class="card" href="baby-crawl-hard.html">
+    <h2>Hard Mode →</h2>
+    <p>50 seconds a room, more furniture, more toys, more trouble.</p>
+  </a>
+
+  <a class="card" href="baby-crawl-3d.html">
+    <h2>3D →</h2>
+    <p>Rendered in three.js. Toys unlock as you push deeper into the house.</p>
+  </a>
+
+  <p class="controls">
+    <kbd>WASD</kbd> or <kbd>Arrows</kbd> to crawl · <kbd>Space</kbd> to call Mom<br>
+    Collect every toy in a room to clear it. Three hearts, and the clock is running.
+  </p>
+  <p class="controls" style="border:0; padding:0; margin-top:1em;">
+    <a class="src" href="https://github.com/Zoghou/baby-crawl">Source on GitHub</a>
+  </p>
+</main>
+</body>
+</html>

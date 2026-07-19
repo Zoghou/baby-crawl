@@ -2,6 +2,8 @@
 
 A small browser game: baby crawls around the house hunting for toys, navigating furniture and avoiding the things that shouldn't go in their mouth. Three self-contained variants, no build step — open an `.html` file in a browser and play.
 
+**▶ Play: <https://zoghou.github.io/baby-crawl/>**
+
 ## The variants
 
 | File | What it is |
