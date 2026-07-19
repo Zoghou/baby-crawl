@@ -53,8 +53,9 @@
   #toyBanner.show { opacity:1; transform:translateX(-50%) translateY(0); }
   .overlay {
     position:absolute; inset:0; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:10px; text-align:center;
+    align-items:center; justify-content:safe center; gap:10px; text-align:center;
     background:rgba(255,246,236,.94); padding:24px; z-index:5;
+    overflow-y:auto; -webkit-overflow-scrolling:touch;
   }
   .overlay.hidden { display:none; }
   .overlay h1 { margin:0; font-size:clamp(28px,5vw,46px); }
