@@ -151,7 +151,8 @@ const LEVEL_TIME = 50000;  // ms per room  (was 60s)
 const MOUTH_BASE = 2800;   // ms baby holds a hazard before it's swallowed (was 3400)
 const MOM_COOLDOWN = 4800; // ms between rescues (was 4200)
 const BABY_R = 22;         // collision radius vs furniture
-const DANCE_MS = 2400;     // victory dance length when a room is cleared
+const DANCE_MS = 2400;      // victory dance length when a room is cleared
+const CELEBRATE_GROW_MS = 450; // time baby takes to zoom from its spot to screen centre
 
 let state, keys = {}, last = 0, running = false;
 
@@ -172,6 +173,7 @@ function reset() {
     shake: 0,
     pops: [],
     dance: null,        // the victory dance currently playing (see DANCES)
+    danceFrom: null,    // { x, y } baby was standing at when the room cleared
     confetti: [],
   };
   buildLevel(1);
@@ -346,6 +348,7 @@ function buildLevel(level) {
   state.timeLeft = LEVEL_TIME;
   state.transition = 0;
   state.dance = null;
+  state.danceFrom = null;
   state.confetti = [];
   state.spawnTimer = 1800;
 
@@ -513,10 +516,11 @@ function update(dt) {
           beep(660 + Math.random() * 120, .09, 'triangle');
           if (state.toysCollected >= state.toysTotal) {
             state.dance = pickDance();
+            state.danceFrom = { x: b.x, y: b.y };
             state.transition = DANCE_MS;
             react('happy', DANCE_MS);
-            pop(b.x, b.y - 66, 'Room cleared! 🎉', '#ef7d8e', 26);
-            spawnConfetti(b.x, b.y - 30);
+            pop(W / 2, 56, 'Room cleared! 🎉', '#ef7d8e', 26);
+            spawnConfetti(W / 2, 30);
             beep(880, .18, 'sine');
             setTimeout(() => beep(1175, .2, 'sine'), 150);
             return;
@@ -677,7 +681,7 @@ function shadow(x, y, rx) {
 
 /* A whole hand-drawn baby on all fours. Faces +x locally; flipped by b.face.
    Crawls (limbs swing) and its head puffs + smiles/cries with `mood`. */
-function drawBaby(b, now, dance) {
+function drawBaby(b, now) {
   const SKIN = '#f7c69f', SKIN_D = '#e4a97c';
   const SUIT = '#8fd0e6', SUIT_D = '#5fa9c6';
   const HAIR = '#7a5638';
@@ -687,16 +691,14 @@ function drawBaby(b, now, dance) {
 
   ctx.save();
   ctx.translate(b.x, b.y + 4);
-  if (dance) ctx.rotate(dance.rot || 0);
-  ctx.scale(b.face * (dance ? dance.scaleX : 1), 1);
+  ctx.scale(b.face, 1);
   const ph = b.wobble;
-  const bob = dance ? dance.bounce : Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
+  const bob = Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
   ctx.translate(0, -bob);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  const sw = dance ? dance.sw : (moving ? Math.sin(ph) : 0);   // crawl swing / dance swing
-  const armBias = dance ? dance.armUp * 0.9 : 0;               // dance arms-up offset
+  const sw = moving ? Math.sin(ph) : 0;   // crawl swing
 
   // helper: draw a limb, return the [x,y] of its tip
   function limb(hx, hy, len, ang, w, col) {
@@ -714,7 +716,7 @@ function drawBaby(b, now, dance) {
   let p;
   p = limb(-14, 2, 21, Math.PI/2 - 0.35 - sw*0.55, 10, SUIT_D);  // far leg
   nub(p[0], p[1], 5.5, SKIN_D);
-  p = limb(12, -1, 20, Math.PI/2 + 0.30 + sw*0.55 - armBias, 8, SKIN_D);   // far arm
+  p = limb(12, -1, 20, Math.PI/2 + 0.30 + sw*0.55, 8, SKIN_D);   // far arm
   nub(p[0], p[1], 5, SKIN_D);
 
   // --- diaper bump + onesie torso ---
@@ -730,7 +732,7 @@ function drawBaby(b, now, dance) {
   // --- near-side limbs (brighter, on top of torso) ---
   p = limb(-12, 5, 22, Math.PI/2 - 0.35 + sw*0.55, 12, SUIT);    // near leg
   nub(p[0], p[1], 6.5, SKIN);
-  p = limb(15, 1, 21, Math.PI/2 + 0.30 - sw*0.55 - armBias, 9, SKIN);      // near arm
+  p = limb(15, 1, 21, Math.PI/2 + 0.30 - sw*0.55, 9, SKIN);      // near arm
   nub(p[0], p[1], 5.5, SKIN);
 
   // --- head ---
@@ -808,6 +810,125 @@ function drawFace(hx, hy, hs, mood, now) {
   }
 }
 
+/* ---------- victory dance: a big baby facing the player ----------
+   Room-cleared swaps the small side-on crawler for this standing,
+   front-facing baby that zooms up to screen centre and fills roughly
+   half the stage while it dances, in front of the (still visible)
+   room. Reuses each DANCES pose()'s knobs but reinterprets them for a
+   symmetric standing figure instead of a crawling one. */
+const easeOutCubic = x => 1 - Math.pow(1 - x, 3);
+const CELEBRATE_UNIT_H = 110;   // approx head-to-feet height in local units at scale 1
+
+function celebrationTransform(danceT, from) {
+  const e = easeOutCubic(Math.min(1, danceT / CELEBRATE_GROW_MS));
+  const cx = from.x + (W / 2 - from.x) * e;
+  const cy = from.y + (H / 2 - from.y) * e;
+  const smallScale = 0.5, bigScale = (H * 0.5) / CELEBRATE_UNIT_H;
+  const scale = smallScale + (bigScale - smallScale) * e;
+  return { cx, cy, scale };
+}
+
+function drawBabyFront(cx, cy, scale, now, danceT, dance) {
+  const SKIN = '#f7c69f', SKIN_D = '#e4a97c';
+  const SUIT = '#8fd0e6', SUIT_D = '#5fa9c6';
+  const HAIR = '#7a5638';
+  const pose = dance.pose(danceT);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(pose.rot || 0);
+  ctx.scale(scale * (pose.scaleX || 1), scale);
+  ctx.translate(0, -(pose.bounce || 0));
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  function limb(hx, hy, len, ang, w, col) {
+    const ex = hx + Math.cos(ang) * len, ey = hy + Math.sin(ang) * len;
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ex, ey); ctx.stroke();
+    return [ex, ey];
+  }
+  function limbTo(hx, hy, tx, ty, w, col) {
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+    return [tx, ty];
+  }
+  function nub(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  // Hand position for one arm: rest (hanging out at the side) blends toward
+  // either straight overhead (lift > 0) or trailing down-and-back (lift < 0).
+  // Lerping the hand's (x,y) directly — rather than an angle — sidesteps any
+  // sign confusion about which way "up" rotates for the left vs. right arm.
+  function armHand(side, lift) {
+    const restX = side * 40, restY = 16;
+    if (lift >= 0) {
+      const upX = side * 26, upY = -64;   // clear of the head (centred at y=-36, r=20)
+      return [restX + (upX - restX) * lift, restY + (upY - restY) * lift];
+    }
+    const backX = side * 20, backY = 34, k = -lift;
+    return [restX + (backX - restX) * k, restY + (backY - restY) * k];
+  }
+
+  const kick = pose.sw || 0;
+  const liftAmt = Math.max(-1, Math.min(1, pose.armUp || 0));
+
+  // --- legs (symmetric, kicking apart/together with the beat) ---
+  let p;
+  p = limb(-11, 20, 30, Math.PI/2 + 0.22 + kick * 0.4, 11, SUIT_D);  // left leg
+  nub(p[0], p[1], 6, SKIN_D);
+  p = limb(11, 20, 30, Math.PI/2 - 0.22 - kick * 0.4, 11, SUIT);     // right leg
+  nub(p[0], p[1], 6, SKIN);
+
+  // --- torso ---
+  ctx.fillStyle = SUIT;
+  roundRect(-22, -12, 44, 40, 18); ctx.fill();
+  ctx.strokeStyle = SUIT_D; ctx.lineWidth = 2;
+  roundRect(-22, -12, 44, 40, 18); ctx.stroke();
+  nub(-7, 2, 2, '#fff'); nub(7, 9, 2, '#fff');
+
+  // --- arms (raise toward overhead as liftAmt approaches 1) ---
+  let hand = armHand(-1, liftAmt);
+  p = limbTo(-20, -6, hand[0], hand[1], 9, SKIN_D);  // left arm
+  nub(p[0], p[1], 5.5, SKIN_D);
+  hand = armHand(1, liftAmt);
+  p = limbTo(20, -6, hand[0], hand[1], 9, SKIN);     // right arm
+  nub(p[0], p[1], 5.5, SKIN);
+
+  // --- head, facing straight out at the player ---
+  const hx = 0, hy = -36;
+  ctx.strokeStyle = SKIN; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(hx, hy + 15); ctx.stroke();
+  nub(hx - 17, hy + 3, 4, SKIN_D); nub(hx + 17, hy + 3, 4, SKIN_D);  // ears
+  ctx.fillStyle = SKIN;
+  ctx.beginPath(); ctx.arc(hx, hy, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = HAIR; ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(hx, hy - 19, 5, Math.PI * 0.9, Math.PI * 2.3);
+  ctx.stroke();
+
+  drawFrontFace(hx, hy);
+
+  ctx.restore();
+}
+
+function drawFrontFace(hx, hy) {
+  ctx.strokeStyle = '#3a2a1d'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+  for (const dx of [-7, 7]) {
+    ctx.beginPath();
+    ctx.arc(hx + dx, hy - 2, 3, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(239,125,142,.5)';
+  ctx.beginPath(); ctx.arc(hx - 12, hy + 7, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 12, hy + 7, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#a83a3a';
+  ctx.beginPath();
+  ctx.arc(hx, hy + 7, 6.4, 0.08 * Math.PI, 0.92 * Math.PI);
+  ctx.fill();
+}
+
 function draw(now) {
   ctx.save();
   if (state.shake > 0.4) ctx.translate((Math.random()-.5)*state.shake, (Math.random()-.5)*state.shake);
@@ -828,10 +949,13 @@ function draw(now) {
   }
 
   const b = state.baby;
-  shadow(b.x, b.y + 22, 26);
   if (state.transition > 0 && state.dance) {
-    drawBaby(b, now, state.dance.pose(DANCE_MS - state.transition));
+    const danceT = DANCE_MS - state.transition;
+    const { cx, cy, scale } = celebrationTransform(danceT, state.danceFrom);
+    shadow(cx, cy + scale * 56, scale * 30);
+    drawBabyFront(cx, cy, scale, now, danceT, state.dance);
   } else {
+    shadow(b.x, b.y + 22, 26);
     drawBaby(b, now);
   }
   drawConfetti();
@@ -879,17 +1003,19 @@ function draw(now) {
   }
 
   if (state.transition > 0) {
+    // Captions sit near the bottom edge — the dancing baby now fills the
+    // middle of the stage, so text can't live there anymore.
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = '#4a3728';
     if (state.dance) {
       ctx.font = 'bold 22px "Trebuchet MS", sans-serif';
-      ctx.fillText('💃 ' + state.dance.name + '! 💃', W/2, H/2 + 48);
+      ctx.fillText('💃 ' + state.dance.name + '! 💃', W/2, H - 40);
       ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
-      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 74);
+      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H - 16);
     } else {
       ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
-      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 46);
+      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H - 20);
     }
     ctx.restore();
   }
