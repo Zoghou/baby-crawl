@@ -369,7 +369,85 @@ function resolveFurniture(b) {
   b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y));
 }
 
+/* ---------- reachability ----------
+   The room is only fair if the baby can crawl from its start to every toy
+   WITHOUT being forced through a hazard's pickup radius. We prove that with a
+   coarse flood fill: mark each grid cell the baby's centre can occupy (clear
+   of furniture and walls), optionally also treating hazard pickup zones as
+   walls, then BFS out from the start cell. */
+const CELL = 18;
+const GW = Math.ceil(W / CELL), GH = Math.ceil(H / CELL);
+// Demand a bit more clearance than the true radius so a corridor the coarse
+// grid rates "passable" is comfortably passable in actual play (never tighter).
+const CLEAR_MARGIN = 12;
+
+function cellClear(cx, cy) {
+  const r = BABY_R + CLEAR_MARGIN;
+  if (cx < r || cx > W - r || cy < r || cy > H - r) return false;
+  for (const f of state.furniture) if (rectCircleDist(f, cx, cy) < r) return false;
+  return true;
+}
+function computeReachable(blocked) {
+  const grid = new Uint8Array(GW * GH);
+  const passable = (i, j) => {
+    const cx = i * CELL + CELL / 2, cy = j * CELL + CELL / 2;
+    if (!cellClear(cx, cy)) return false;
+    return !(blocked && blocked(cx, cy));
+  };
+  const si = Math.min(GW - 1, Math.max(0, Math.floor(state.baby.x / CELL)));
+  const sj = Math.min(GH - 1, Math.max(0, Math.floor(state.baby.y / CELL)));
+  const stack = [];
+  if (passable(si, sj)) { grid[sj * GW + si] = 1; stack.push(si, sj); }
+  const NB = [1,0, -1,0, 0,1, 0,-1, 1,1, 1,-1, -1,1, -1,-1];
+  while (stack.length) {
+    const j = stack.pop(), i = stack.pop();
+    for (let k = 0; k < NB.length; k += 2) {
+      const ni = i + NB[k], nj = j + NB[k + 1];
+      if (ni < 0 || nj < 0 || ni >= GW || nj >= GH) continue;
+      if (grid[nj * GW + ni]) continue;
+      if (passable(ni, nj)) { grid[nj * GW + ni] = 1; stack.push(ni, nj); }
+    }
+  }
+  let count = 0; for (let n = 0; n < grid.length; n++) count += grid[n];
+  return {
+    count,
+    at(x, y) {
+      const i = Math.floor(x / CELL), j = Math.floor(y / CELL);
+      if (i < 0 || j < 0 || i >= GW || j >= GH) return false;
+      return grid[j * GW + i] === 1;
+    },
+  };
+}
+// A blocker that walls off every hazard's pickup radius.
+function hazardWalls() {
+  const hz = state.items.filter(it => it.bad);
+  const R = PICKUP_R + 8;
+  return (cx, cy) => hz.some(h => Math.hypot(h.x - cx, h.y - cy) < R);
+}
+// True when the start and every toy sit in the same reachable region.
+function toysAllSafe(reach) {
+  const b = state.baby;
+  return reach.at(b.x, b.y) && state.items.every(it => it.bad || reach.at(it.x, it.y));
+}
+
 /* ---------- level building ---------- */
+function placeFurniture(count, fscale, b) {
+  state.furniture = [];
+  let guard = 0;
+  while (state.furniture.length < count && guard++ < 600) {
+    const f = pick(FURNITURE);
+    const fw = f.w * fscale, fh = f.h * fscale;
+    const rect = {
+      emoji: f.emoji, w: fw, h: fh,
+      x: 40 + Math.random() * (W - 80 - fw),
+      y: 40 + Math.random() * (H - 80 - fh),
+    };
+    if (rectCircleDist(rect, b.x, b.y) < 150) continue;   // keep the baby's start clear
+    if (state.furniture.some(o => rectsOverlap(rect, o, 20))) continue;
+    state.furniture.push(rect);
+  }
+}
+
 function buildLevel(level) {
   state.level = level;
   state.items = [];
@@ -387,38 +465,71 @@ function buildLevel(level) {
   b.x = W/2; b.y = H/2; b.vx = 0; b.vy = 0; b.stun = 0;
   b.headScale = 1; b.mood = 'neutral'; b.moodT = 0;
 
-  // Obstacles carry the difficulty now: more of them, bigger, and in nastier
-  // spots each room. They grow enough to pinch the routes between the toys.
-  const wanted = Math.min(2 + level, 8);
-  const fscale = Math.min(1 + (level - 1) * 0.10, 1.6);
-  let guard = 0;
-  while (state.furniture.length < wanted && guard++ < 600) {
-    const f = pick(FURNITURE);
-    const fw = f.w * fscale, fh = f.h * fscale;
-    const rect = {
-      emoji: f.emoji, w: fw, h: fh,
-      x: 40 + Math.random() * (W - 80 - fw),
-      y: 40 + Math.random() * (H - 80 - fh),
-    };
-    if (rectCircleDist(rect, b.x, b.y) < 150) continue;   // keep the baby's start clear
-    if (state.furniture.some(o => rectsOverlap(rect, o, 20))) continue;
-    state.furniture.push(rect);
+  // Obstacles carry the difficulty: more of them, bigger, in nastier spots each
+  // room. Toys start at 3 and add one per room, capped at 10.
+  const wantToys = Math.min(2 + level, 10);
+  const wantFurn = Math.min(2 + level, 8);
+  const fscale   = Math.min(1 + (level - 1) * 0.10, 1.6);
+  const wantHaz  = Math.min(1 + Math.floor(level / 3), 3);
+
+  // Build layouts until one fits every toy reachably (ideally with every hazard
+  // avoidable too); otherwise keep the best attempt and repair it below.
+  let best = null;
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const relax = attempt > 18;                 // ease off if the room is stubborn
+    placeFurniture(relax ? Math.max(2, wantFurn - 2) : wantFurn, relax ? fscale * 0.9 : fscale, b);
+    const reach = computeReachable();
+    if (reach.count < GW * GH * 0.2 && !relax) continue;   // furniture walled the room off
+
+    state.items = [];
+    let placed = 0;
+    for (let i = 0; i < wantToys; i++) if (placeItem(false, reach)) placed++;
+
+    // Place hazards where they don't seal a toy off; reject spots that do.
+    // (Base item spacing already keeps them well outside a toy's pickup range,
+    // so grabbing a toy can never grab a neighbouring hazard by accident.)
+    for (let i = 0; i < wantHaz; i++) {
+      for (let t = 0; t < 8; t++) {
+        if (!placeItem(true, reach)) break;
+        if (toysAllSafe(computeReachable(hazardWalls()))) break;
+        state.items.pop();                       // this hazard blocks a toy — try again
+      }
+    }
+
+    const safe = computeReachable(hazardWalls());
+    const safeToys = state.items.filter(it => !it.bad && safe.at(it.x, it.y)).length;
+    const score = safeToys * 10 - (wantToys - placed);
+    if (!best || score > best.score) best = { score, furniture: state.furniture.slice(), items: state.items.slice() };
+    if (placed === wantToys && toysAllSafe(safe)) break;
   }
 
-  // Toys are finite — collecting all of them clears the room. Start at 3 and
-  // add one per room, capped at 10. Fewer, but each one much bigger.
-  const wantToys = Math.min(2 + level, 10);
-  let placed = 0;
-  for (let i = 0; i < wantToys; i++) if (placeItem(false)) placed++;
-  state.toysTotal = placed;
-  state.toysCollected = 0;
+  state.furniture = best.furniture;
+  state.items = best.items;
 
-  // A few starting hazards — and no red warning ring, so read the emoji.
-  const haz = Math.min(1 + Math.floor(level / 3), 3);
-  for (let i = 0; i < haz; i++) placeItem(true);
+  // Absolute guarantee: peel away any hazard that still traps a toy (furniture-
+  // only reachability is always safe, since toys were placed on it), then drop
+  // any toy that somehow remains unreachable at all.
+  let safe = computeReachable(hazardWalls());
+  while (state.items.some(it => it.bad) && !toysAllSafe(safe)) {
+    const unsafe = state.items.filter(it => !it.bad && !safe.at(it.x, it.y));
+    const hz = state.items.filter(it => it.bad);
+    let victim = hz[0], vd = Infinity;
+    for (const h of hz) for (const tj of unsafe) {
+      const d = Math.hypot(h.x - tj.x, h.y - tj.y);
+      if (d < vd) { vd = d; victim = h; }
+    }
+    state.items.splice(state.items.indexOf(victim), 1);
+    safe = computeReachable(hazardWalls());
+  }
+  const furn = computeReachable();
+  state.reach = furn;
+  state.items = state.items.filter(it => it.bad || furn.at(it.x, it.y));
+
+  state.toysTotal = state.items.filter(it => !it.bad).length;
+  state.toysCollected = 0;
 }
 
-function placeItem(bad) {
+function placeItem(bad, reach, minToyDist) {
   const M = ITEM_DRAW * 0.5;                 // keep big items fully on the floor
   let x, y, tries = 0, ok = false;
   do {
@@ -426,7 +537,9 @@ function placeItem(bad) {
     y = M + Math.random() * (H - 2 * M);
     ok = Math.hypot(x - state.baby.x, y - state.baby.y) > 170 &&
          !inFurniture(x, y, 60) &&
-         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < ITEM_DRAW * 0.8);
+         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < ITEM_DRAW * 0.8) &&
+         (!reach || reach.at(x, y)) &&
+         (!minToyDist || !state.items.some(it => !it.bad && Math.hypot(it.x - x, it.y - y) < minToyDist));
     tries++;
   } while (!ok && tries < 240);
   if (!ok) return false;
@@ -624,7 +737,13 @@ function update(dt) {
   state.spawnTimer -= dt;
   if (state.spawnTimer <= 0) {
     const hazards = state.items.filter(it => it.bad).length;
-    if (hazards < 1 + Math.floor(state.level / 2)) placeItem(true);
+    if (hazards < 1 + Math.floor(state.level / 2)) {
+      // Only keep the new hazard if it doesn't wall off a still-uncollected toy.
+      if (placeItem(true, state.reach) &&
+          !toysAllSafe(computeReachable(hazardWalls()))) {
+        state.items.pop();
+      }
+    }
     state.spawnTimer = Math.max(1800, 3400 - state.level * 120);
   }
 
