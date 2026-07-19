@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baby's First Crawl — Hard Mode</title>
+<style>
+  :root {
+    --rug: #f6e2d0;
+    --floor: #e8d3ba;
+    --ink: #4a3728;
+    --accent: #ef7d8e;
+    --good: #7ac74f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 20%, #d6f5c8, #7ac74f);
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    color: var(--ink);
+    padding: 16px;
+  }
+  #shell {
+    position: relative;
+    width: min(900px, 100%);
+  }
+  #hud {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: #fff;
+    border: 3px solid var(--ink);
+    border-bottom: none;
+    border-radius: 18px 18px 0 0;
+    font-weight: bold;
+  }
+  #hud .spacer { flex: 1; }
+  #hearts { letter-spacing: 2px; font-size: 20px; }
+  #time { font-variant-numeric: tabular-nums; }
+  #time.low { color: #d94a4a; animation: pulse .6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .badge { font-size: 12px; background: var(--ink); color: #fff; padding: 2px 8px; border-radius: 99px; }
+  .meter {
+    width: 120px; height: 12px;
+    background: #e7dcd2;
+    border: 2px solid var(--ink);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .meter > div { height: 100%; width: 100%; background: var(--good); transition: width .08s linear; }
+  #momMeterFill { background: var(--accent); }
+  canvas {
+    display: block;
+    width: 100%;
+    border: 3px solid var(--ink);
+    border-radius: 0 0 18px 18px;
+    background: var(--floor);
+    touch-action: none;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    text-align: center;
+    background: rgba(255, 246, 236, .93);
+    border: 3px solid var(--ink);
+    border-radius: 18px;
+    padding: 24px;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 { margin: 0; font-size: clamp(28px, 5vw, 46px); }
+  .overlay p { margin: 2px 0; max-width: 46ch; line-height: 1.5; }
+  kbd {
+    background: #fff; border: 2px solid var(--ink);
+    border-bottom-width: 4px; border-radius: 6px;
+    padding: 1px 7px; font-family: inherit; font-weight: bold;
+  }
+  button {
+    margin-top: 8px;
+    font: inherit; font-weight: bold; font-size: 20px;
+    padding: 12px 28px;
+    background: var(--accent); color: #fff;
+    border: 3px solid var(--ink); border-bottom-width: 6px;
+    border-radius: 14px; cursor: pointer;
+  }
+  button:active { transform: translateY(3px); border-bottom-width: 3px; }
+  .tiny { font-size: 13px; opacity: .7; }
+</style>
+</head>
+<body>
+<div id="shell">
+  <div id="hud">
+    <span>🧸 <span id="toys">0</span>/<span id="toysTotal">0</span></span>
+    <span>Score <span id="score">0</span></span>
+    <span>Room <span id="level">1</span></span>
+    <span>⏱ <span id="time">0:50</span></span>
+    <span class="badge">HARD</span>
+    <span class="spacer"></span>
+    <span>Mom <div class="meter" style="display:inline-block;vertical-align:middle"><div id="momMeterFill"></div></div></span>
+    <span id="hearts">❤️❤️❤️</span>
+  </div>
+  <canvas id="game" width="900" height="580"></canvas>
+
+  <div class="overlay" id="startScreen">
+    <h1>👶 Baby's First Crawl</h1>
+    <p><b>Hard Mode.</b> Baby is off across a cluttered house hunting for toys — and puts <em>everything</em> in their mouth.</p>
+    <p><kbd>WASD</kbd> or <kbd>Arrows</kbd> to crawl · <kbd>Space</kbd> to call Mom</p>
+    <p class="tiny">Grab <b>every</b> toy before the <b>50&nbsp;second</b> clock runs out. Crawl <b>around</b> the furniture 🛋️🛏️🪑. Mouth something dangerous 🧦🔌🪙 and Mom has very little time to fish it out — and the rooms only get more crowded.</p>
+    <button id="startBtn">Start crawling</button>
+  </div>
+
+  <div class="overlay hidden" id="endScreen">
+    <h1 id="endTitle">Nap time 😴</h1>
+    <p id="endMsg"></p>
+    <button id="againBtn">Crawl again</button>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const TOYS    = ['🧸','🦆','🎈','🧩','🪀','⭐','🍼','🚗'];
+const HAZARDS = ['🧦','🔌','🪙','🌶️','🕷️','🗑️','🖊️','💊'];
+// Household obstacles a crawling baby can't get through. w/h are the footprint.
+const FURNITURE = [
+  { emoji:'🛋️', w:158, h:82 },   // sofa
+  { emoji:'🛏️', w:150, h:112 },  // bed
+  { emoji:'🪑', w:72,  h:72 },    // chair
+  { emoji:'🗄️', w:92,  h:74 },   // cabinet
+  { emoji:'📦', w:74,  h:74 },    // boxes
+  { emoji:'🪴', w:66,  h:74 },    // potted plant
+  { emoji:'🧺', w:74,  h:60 },    // laundry basket
+  { emoji:'🛁', w:132, h:82 },    // tub
+  { emoji:'🎁', w:70,  h:70 },    // present
+];
+
+// --- Hard-mode tuning (crank these to taste) ---
+const LEVEL_TIME = 50000;  // ms per room  (was 60s)
+const MOUTH_BASE = 2800;   // ms baby holds a hazard before it's swallowed (was 3400)
+const MOM_COOLDOWN = 4800; // ms between rescues (was 4200)
+const BABY_R = 22;         // collision radius vs furniture
+
+let state, keys = {}, last = 0, running = false;
+
+function reset() {
+  state = {
+    baby:  { x: W/2, y: H/2, vx: 0, vy: 0, wobble: 0, face: 1, stun: 0,
+             headScale: 1, mood: 'neutral', moodT: 0 },
+    mom:   { x: -80, y: H/2, active: false, phase: 'idle', cooldown: 0, target: null },
+    items: [],
+    furniture: [],
+    mouth: null,        // { emoji, t, max }
+    score: 0, level: 1,
+    toysCollected: 0, toysTotal: 0,
+    timeLeft: LEVEL_TIME,
+    transition: 0,      // >0 = room-cleared celebration, gameplay frozen
+    hearts: 3,
+    spawnTimer: 0,
+    shake: 0,
+    pops: [],
+  };
+  buildLevel(1);
+}
+
+/* ---------- audio ---------- */
+let actx;
+function beep(freq, dur = 0.1, type = 'sine', gain = 0.06) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(gain, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+
+const pick = a => a[Math.floor(Math.random() * a.length)];
+
+// Kick off a facial reaction: head briefly puffs up + a mood.
+function react(mood, ms) {
+  const b = state.baby;
+  b.mood = mood;
+  b.moodT = ms;
+  b.headScale = 1.42;
+}
+
+/* ---------- geometry helpers ---------- */
+function rectsOverlap(a, b, pad = 0) {
+  return a.x - pad < b.x + b.w + pad && a.x + a.w + pad > b.x - pad &&
+         a.y - pad < b.y + b.h + pad && a.y + a.h + pad > b.y - pad;
+}
+function rectCircleDist(r, cx, cy) {
+  const nx = Math.max(r.x, Math.min(cx, r.x + r.w));
+  const ny = Math.max(r.y, Math.min(cy, r.y + r.h));
+  return Math.hypot(cx - nx, cy - ny);
+}
+function inFurniture(x, y, pad = 0) {
+  return state.furniture.some(f =>
+    x > f.x - pad && x < f.x + f.w + pad && y > f.y - pad && y < f.y + f.h + pad);
+}
+// Push the baby out of any furniture it overlaps (allows sliding along edges).
+function resolveFurniture(b) {
+  for (const f of state.furniture) {
+    const nx = Math.max(f.x, Math.min(b.x, f.x + f.w));
+    const ny = Math.max(f.y, Math.min(b.y, f.y + f.h));
+    const dx = b.x - nx, dy = b.y - ny, d = Math.hypot(dx, dy);
+    if (d < BABY_R) {
+      if (d < 0.0001) {
+        const left = b.x - f.x, right = f.x + f.w - b.x;
+        const top = b.y - f.y, bottom = f.y + f.h - b.y;
+        const m = Math.min(left, right, top, bottom);
+        if (m === left) b.x = f.x - BABY_R;
+        else if (m === right) b.x = f.x + f.w + BABY_R;
+        else if (m === top) b.y = f.y - BABY_R;
+        else b.y = f.y + f.h + BABY_R;
+        b.vx = 0; b.vy = 0;
+      } else {
+        const push = BABY_R - d;
+        b.x += dx / d * push;
+        b.y += dy / d * push;
+      }
+    }
+  }
+  b.x = Math.max(26, Math.min(W - 26, b.x));
+  b.y = Math.max(26, Math.min(H - 26, b.y));
+}
+
+/* ---------- level building ---------- */
+function buildLevel(level) {
+  state.level = level;
+  state.items = [];
+  state.furniture = [];
+  state.mouth = null;
+  state.mom = { x: -80, y: H/2, active: false, phase: 'idle', cooldown: 0, target: null };
+  state.timeLeft = LEVEL_TIME;
+  state.transition = 0;
+  state.spawnTimer = 1800;
+
+  const b = state.baby;
+  b.x = W/2; b.y = H/2; b.vx = 0; b.vy = 0; b.stun = 0;
+  b.headScale = 1; b.mood = 'neutral'; b.moodT = 0;
+
+  // Furniture: lots of clutter, and more every room.
+  const wanted = Math.min(2 + level, 7);
+  let guard = 0;
+  while (state.furniture.length < wanted && guard++ < 400) {
+    const f = pick(FURNITURE);
+    const rect = {
+      emoji: f.emoji, w: f.w, h: f.h,
+      x: 40 + Math.random() * (W - 80 - f.w),
+      y: 40 + Math.random() * (H - 80 - f.h),
+    };
+    if (rectCircleDist(rect, b.x, b.y) < 95) continue;
+    if (state.furniture.some(o => rectsOverlap(rect, o, 24))) continue;
+    state.furniture.push(rect);
+  }
+
+  // Toys are finite — collecting all of them clears the room (that's the max score).
+  const wantToys = Math.min(8 + level * 2, 18);
+  let placed = 0;
+  for (let i = 0; i < wantToys; i++) if (placeItem(false)) placed++;
+  state.toysTotal = placed;
+  state.toysCollected = 0;
+
+  // A pile of starting hazards; more keep spawning.
+  const haz = Math.min(2 + Math.floor(level / 2), 5);
+  for (let i = 0; i < haz; i++) placeItem(true);
+}
+
+function placeItem(bad) {
+  let x, y, tries = 0, ok = false;
+  do {
+    x = 50 + Math.random() * (W - 100);
+    y = 50 + Math.random() * (H - 100);
+    ok = Math.hypot(x - state.baby.x, y - state.baby.y) > 110 &&
+         !inFurniture(x, y, 34) &&
+         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < 42);
+    tries++;
+  } while (!ok && tries < 90);
+  if (!ok) return false;
+  state.items.push({ x, y, bad, emoji: pick(bad ? HAZARDS : TOYS), born: performance.now(), r: 26 });
+  return true;
+}
+
+function pop(x, y, text, color, size) {
+  state.pops.push({ x, y, text, color, size: size || 20, t: 0 });
+}
+
+/* ---------- input ---------- */
+const MOVE = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+               w:'up', s:'down', a:'left', d:'right' };
+const STEP = 7;
+addEventListener('keydown', e => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (MOVE[k] || k === ' ') e.preventDefault();
+  if (k === ' ' && running) callMom();
+  const dir = MOVE[k];
+  if (dir && !keys[dir] && running && state.transition <= 0 && state.baby.stun <= 0) {
+    const b = state.baby;
+    if (dir === 'left')  { b.x -= STEP; b.face = -1; }
+    if (dir === 'right') { b.x += STEP; b.face = 1; }
+    if (dir === 'up')    b.y -= STEP;
+    if (dir === 'down')  b.y += STEP;
+    b.x = Math.max(26, Math.min(W - 26, b.x));
+    b.y = Math.max(26, Math.min(H - 26, b.y));
+    resolveFurniture(b);
+  }
+  keys[dir || k] = true;
+});
+addEventListener('keyup', e => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  keys[MOVE[k] || k] = false;
+});
+
+function callMom() {
+  const m = state.mom;
+  if (m.active || m.cooldown > 0) return;
+  if (!state.mouth) {
+    m.cooldown = MOM_COOLDOWN * 0.7;
+    pop(state.baby.x, state.baby.y - 40, 'not now!', '#b08968');
+    beep(180, .12, 'triangle');
+    return;
+  }
+  m.active = true;
+  m.phase = 'coming';
+  const b = state.baby;
+  const edges = [ {x:-70, y:b.y}, {x:W+70, y:b.y}, {x:b.x, y:-70}, {x:b.x, y:H+70} ];
+  const e = edges.sort((p,q) => Math.hypot(p.x-b.x,p.y-b.y) - Math.hypot(q.x-b.x,q.y-b.y))[0];
+  m.x = e.x; m.y = e.y;
+  beep(520, .1, 'sine');
+}
+
+/* ---------- update ---------- */
+function update(dt) {
+  const b = state.baby, m = state.mom;
+
+  // Facial reaction settles back to normal (runs even mid-celebration).
+  b.headScale += (1 - b.headScale) * Math.min(1, 0.006 * dt);
+  if (b.moodT > 0) { b.moodT -= dt; if (b.moodT <= 0) b.mood = 'neutral'; }
+
+  // Room-cleared celebration: freeze play, then load the next room.
+  if (state.transition > 0) {
+    state.transition -= dt;
+    state.pops.forEach(p => p.t += dt);
+    state.pops = state.pops.filter(p => p.t < 1500);
+    if (state.transition <= 0) buildLevel(state.level + 1);
+    return;
+  }
+
+  // Countdown — miss the clock and it's game over.
+  state.timeLeft -= dt;
+  if (state.timeLeft <= 0) { state.timeLeft = 0; return timeUp(); }
+
+  if (m.cooldown > 0) m.cooldown -= dt;
+  if (b.stun > 0) b.stun -= dt;
+
+  // --- baby movement ---
+  const canMove = b.stun <= 0 && m.phase !== 'grabbing';
+  let ax = 0, ay = 0;
+  if (canMove) {
+    if (keys.left) ax -= 1;
+    if (keys.right) ax += 1;
+    if (keys.up) ay -= 1;
+    if (keys.down) ay += 1;
+  }
+  if (ax || ay) { const len = Math.hypot(ax, ay); ax /= len; ay /= len; }
+
+  const speed = (state.mouth ? 0.12 : 0.18) * (1 + state.level * 0.012);
+  const targetVx = ax * speed, targetVy = ay * speed;
+  const grip = Math.min(1, 0.022 * dt);
+  b.vx += (targetVx - b.vx) * grip;
+  b.vy += (targetVy - b.vy) * grip;
+  if (!ax && !ay && Math.hypot(b.vx, b.vy) < 0.01) { b.vx = 0; b.vy = 0; }
+
+  b.x = Math.max(26, Math.min(W - 26, b.x + b.vx * dt));
+  b.y = Math.max(26, Math.min(H - 26, b.y + b.vy * dt));
+  resolveFurniture(b);
+
+  b.wobble += Math.hypot(b.vx, b.vy) * dt * 0.42;
+  if (ax !== 0) b.face = ax > 0 ? 1 : -1;
+
+  // --- item pickup ---
+  if (!state.mouth && b.stun <= 0) {
+    for (let i = state.items.length - 1; i >= 0; i--) {
+      const it = state.items[i];
+      if (Math.hypot(it.x - b.x, it.y - b.y) < 30) {
+        state.items.splice(i, 1);
+        if (it.bad) {
+          state.mouth = { emoji: it.emoji, t: 0, max: Math.max(1400, MOUTH_BASE - state.level * 160) };
+          state.shake = 8;
+          react('cry', 1000);
+          pop(b.x, b.y - 48, 'uh oh!', '#d94a4a');
+          beep(140, .25, 'sawtooth', .05);
+        } else {
+          state.score += 10;
+          state.toysCollected++;
+          react('happy', 650);
+          pop(it.x, it.y, '+10', '#3f8f2f');
+          beep(660 + Math.random() * 120, .09, 'triangle');
+          if (state.toysCollected >= state.toysTotal) {
+            state.transition = 1600;
+            react('happy', 1600);
+            pop(b.x, b.y - 66, 'Room cleared! 🎉', '#ef7d8e', 26);
+            beep(880, .18, 'sine');
+            setTimeout(() => beep(1175, .2, 'sine'), 150);
+            return;
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // --- the thing in baby's mouth ---
+  if (state.mouth) {
+    state.mouth.t += dt;
+    if (state.mouth.t >= state.mouth.max && m.phase !== 'grabbing') {
+      state.mouth = null;
+      state.hearts--;
+      state.shake = 22;
+      b.stun = 700;
+      react('cry', 1200);
+      pop(b.x, b.y - 48, 'gulp!', '#d94a4a');
+      beep(90, .4, 'sawtooth', .07);
+      m.active = false; m.phase = 'idle';
+      if (state.hearts <= 0) return gameOver();
+    }
+  }
+
+  // --- mom ---
+  if (m.active) {
+    if (m.phase === 'coming') {
+      const dx = b.x - m.x, dy = b.y - 4 - m.y, d = Math.hypot(dx, dy);
+      const ms = 0.62;
+      if (d < 34) { m.phase = 'grabbing'; m.grabT = 0; }
+      else { m.x += (dx / d) * ms * dt; m.y += (dy / d) * ms * dt; }
+      if (!state.mouth) { m.phase = 'leaving'; }
+    } else if (m.phase === 'grabbing') {
+      m.grabT += dt;
+      m.x = b.x - 30 * (b.face || 1);
+      m.y = b.y - 6;
+      if (m.grabT > 380) {
+        if (state.mouth) {
+          react('happy', 700);
+          pop(b.x, b.y - 54, 'saved! +5', '#3f8f2f');
+          state.score += 5;
+          state.mouth = null;
+          beep(720, .12, 'sine');
+          setTimeout(() => beep(960, .14, 'sine'), 90);
+        }
+        m.phase = 'leaving';
+        m.cooldown = MOM_COOLDOWN;
+      }
+    } else if (m.phase === 'leaving') {
+      m.y -= 0.5 * dt;
+      m.x += (m.x < W / 2 ? -0.5 : 0.5) * dt;
+      if (m.y < -90 || m.x < -90 || m.x > W + 90) {
+        m.active = false; m.phase = 'idle';
+        if (m.cooldown <= 0) m.cooldown = MOM_COOLDOWN;
+      }
+    }
+  }
+
+  // --- spawn extra hazards over time (toys stay finite) ---
+  state.spawnTimer -= dt;
+  if (state.spawnTimer <= 0) {
+    const hazards = state.items.filter(it => it.bad).length;
+    if (hazards < 3 + state.level) placeItem(true);
+    state.spawnTimer = Math.max(1000, 2400 - state.level * 140);
+  }
+
+  if (state.shake > 0) state.shake *= 0.88;
+  state.pops.forEach(p => p.t += dt);
+  state.pops = state.pops.filter(p => p.t < 900);
+}
+
+function timeUp() {
+  running = false;
+  beep(120, .5, 'sawtooth', .06);
+  document.getElementById('endTitle').textContent = "Time's up! ⏰";
+  document.getElementById('endMsg').innerHTML =
+    `The clock ran out in room <b>${state.level}</b> with <b>${state.toysCollected}/${state.toysTotal}</b> toys tidied.<br>` +
+    `Final score: <b>${state.score}</b>. So close!`;
+  document.getElementById('endScreen').classList.remove('hidden');
+}
+
+function gameOver() {
+  running = false;
+  document.getElementById('endTitle').textContent =
+    state.score > 160 ? 'What an explorer! 🏆' : 'Nap time 😴';
+  document.getElementById('endMsg').innerHTML =
+    `Baby collected <b>${state.score}</b> points across <b>${state.level}</b> room${state.level > 1 ? 's' : ''}.<br>` +
+    `Mom needs a coffee. ☕`;
+  document.getElementById('endScreen').classList.remove('hidden');
+}
+
+/* ---------- drawing ---------- */
+function drawFloor() {
+  ctx.fillStyle = '#e8d3ba';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(140,105,75,.18)';
+  ctx.lineWidth = 2;
+  for (let y = 40; y < H; y += 40) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  const rw = W * 0.72, rh = H * 0.72;
+  ctx.fillStyle = '#f6e2d0';
+  roundRect(-rw/2, -rh/2, rw, rh, 40); ctx.fill();
+  ctx.strokeStyle = '#e2b9a0'; ctx.lineWidth = 8;
+  roundRect(-rw/2 + 16, -rh/2 + 16, rw - 32, rh - 32, 28); ctx.stroke();
+  ctx.strokeStyle = '#efd0bc';
+  roundRect(-rw/2 + 34, -rh/2 + 34, rw - 68, rh - 68, 20); ctx.stroke();
+  ctx.restore();
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawFurniture() {
+  for (const f of state.furniture) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(90,60,40,.18)';
+    roundRect(f.x + 4, f.y + 9, f.w, f.h, 16); ctx.fill();
+    ctx.fillStyle = '#dcb78f';
+    roundRect(f.x, f.y, f.w, f.h, 16); ctx.fill();
+    ctx.strokeStyle = '#a97e55'; ctx.lineWidth = 3;
+    roundRect(f.x, f.y, f.w, f.h, 16); ctx.stroke();
+    ctx.restore();
+    emoji(f.emoji, f.x + f.w / 2, f.y + f.h / 2, Math.min(f.w, f.h) * 0.86);
+  }
+}
+
+function emoji(char, x, y, size, rot = 0, scaleX = 1) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+  ctx.scale(scaleX, 1);
+  ctx.font = size + 'px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(char, 0, 0);
+  ctx.restore();
+}
+
+function shadow(x, y, rx) {
+  ctx.save();
+  ctx.fillStyle = 'rgba(90,60,40,.16)';
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, rx * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/* A whole hand-drawn baby on all fours. Faces +x locally; flipped by b.face.
+   Crawls (limbs swing) and its head puffs + smiles/cries with `mood`. */
+function drawBaby(b, now) {
+  const SKIN = '#f7c69f', SKIN_D = '#e4a97c';
+  const SUIT = '#8fd0e6', SUIT_D = '#5fa9c6';
+  const HAIR = '#7a5638';
+
+  const moving = Math.hypot(b.vx, b.vy) > 0.02 ||
+                 keys.up || keys.down || keys.left || keys.right;
+
+  ctx.save();
+  ctx.translate(b.x, b.y + 4);
+  ctx.scale(b.face, 1);
+  const ph = b.wobble;
+  const bob = Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
+  ctx.translate(0, -bob);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const sw = moving ? Math.sin(ph) : 0;   // crawl swing
+
+  // helper: draw a limb, return the [x,y] of its tip
+  function limb(hx, hy, len, ang, w, col) {
+    const ex = hx + Math.cos(ang) * len, ey = hy + Math.sin(ang) * len;
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ex, ey); ctx.stroke();
+    return [ex, ey];
+  }
+  function nub(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // --- far-side limbs (drawn first, slightly darker) ---
+  let p;
+  p = limb(-14, 2, 21, Math.PI/2 - 0.35 - sw*0.55, 10, SUIT_D);  // far leg
+  nub(p[0], p[1], 5.5, SKIN_D);
+  p = limb(12, -1, 20, Math.PI/2 + 0.30 + sw*0.55, 8, SKIN_D);   // far arm
+  nub(p[0], p[1], 5, SKIN_D);
+
+  // --- diaper bump + onesie torso ---
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.ellipse(-17, 3, 9, 11, -0.1, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = SUIT;
+  ctx.beginPath(); ctx.ellipse(-2, 1, 23, 15, -0.14, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = SUIT_D; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(-2, 1, 23, 15, -0.14, 0, Math.PI*2); ctx.stroke();
+  // a couple of onesie buttons
+  nub(-2, -2, 1.6, '#fff'); nub(4, 3, 1.6, '#fff');
+
+  // --- near-side limbs (brighter, on top of torso) ---
+  p = limb(-12, 5, 22, Math.PI/2 - 0.35 + sw*0.55, 12, SUIT);    // near leg
+  nub(p[0], p[1], 6.5, SKIN);
+  p = limb(15, 1, 21, Math.PI/2 + 0.30 - sw*0.55, 9, SKIN);      // near arm
+  nub(p[0], p[1], 5.5, SKIN);
+
+  // --- head ---
+  const hs = b.headScale;
+  const hx = 25, hy = -9 - (hs - 1) * 6;   // rise a touch as it puffs
+  // neck
+  ctx.strokeStyle = SKIN; ctx.lineWidth = 11;
+  ctx.beginPath(); ctx.moveTo(13, -2); ctx.lineTo(hx - 5, hy + 7); ctx.stroke();
+  // ear
+  nub(hx - 10, hy + 2, 3.4 * hs, SKIN_D);
+  // head
+  ctx.fillStyle = SKIN;
+  ctx.beginPath(); ctx.arc(hx, hy, 13 * hs, 0, Math.PI * 2); ctx.fill();
+  // hair curl
+  ctx.strokeStyle = HAIR; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(hx - 3, hy - 12 * hs, 4, Math.PI * 0.9, Math.PI * 2.1);
+  ctx.stroke();
+
+  drawFace(hx, hy, hs, b.mood, now);
+
+  ctx.restore();
+}
+
+function drawFace(hx, hy, hs, mood, now) {
+  const ex = hx + 5 * hs, ey = hy - 2 * hs;   // front eye
+  const bx = hx - 1 * hs;                       // back (far) eye, partly turned away
+
+  if (mood === 'happy') {
+    // ^ ^ happy eyes
+    ctx.strokeStyle = '#3a2a1d'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (const cx of [bx, ex]) {
+      ctx.beginPath();
+      ctx.arc(cx, ey + 2, 2.6 * hs, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+    // rosy cheek
+    ctx.fillStyle = 'rgba(239,125,142,.5)';
+    ctx.beginPath(); ctx.arc(hx + 6 * hs, hy + 4 * hs, 3 * hs, 0, Math.PI * 2); ctx.fill();
+    // big open smile
+    ctx.fillStyle = '#a83a3a';
+    ctx.beginPath();
+    ctx.arc(hx + 2 * hs, hy + 3 * hs, 5 * hs, 0.12 * Math.PI, 0.88 * Math.PI);
+    ctx.fill();
+  } else if (mood === 'cry') {
+    // >_< squeezed eyes
+    ctx.strokeStyle = '#3a2a1d'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (const cx of [bx, ex]) {
+      ctx.beginPath();
+      ctx.arc(cx, ey - 2, 2.6 * hs, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+    }
+    // wailing mouth
+    ctx.fillStyle = '#8f2f2f';
+    ctx.beginPath(); ctx.ellipse(hx + 3 * hs, hy + 5 * hs, 3.2 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
+    // tears streaming (animate a little)
+    const t = (now % 700) / 700;
+    ctx.fillStyle = 'rgba(120,190,235,.85)';
+    for (const cx of [bx, ex]) {
+      const ty = ey + 3 + t * 12;
+      ctx.beginPath(); ctx.ellipse(cx, ty, 1.8, 3, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    // calm dot eyes + tiny smile
+    nub(bx, ey, 1.8 * hs, '#3a2a1d');
+    nub(ex, ey, 1.8 * hs, '#3a2a1d');
+    ctx.strokeStyle = '#8f5a45'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(hx + 2 * hs, hy + 2 * hs, 3.5 * hs, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.stroke();
+  }
+  function nub(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function draw(now) {
+  ctx.save();
+  if (state.shake > 0.4) ctx.translate((Math.random()-.5)*state.shake, (Math.random()-.5)*state.shake);
+
+  drawFloor();
+  drawFurniture();
+
+  for (const it of state.items) {
+    const bob = Math.sin((now - it.born) / 380) * 3;
+    if (it.bad) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(217,74,74,.12)';
+      ctx.beginPath(); ctx.arc(it.x, it.y + bob, 24, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    shadow(it.x, it.y + 18, 13);
+    emoji(it.emoji, it.x, it.y + bob, 34);
+  }
+
+  const b = state.baby;
+  shadow(b.x, b.y + 22, 26);
+  drawBaby(b, now);
+
+  if (state.mouth) {
+    const p = 1 - state.mouth.t / state.mouth.max;
+    emoji(state.mouth.emoji, b.x + 22 * b.face, b.y - 6, 20);
+    ctx.save();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(255,255,255,.65)';
+    ctx.beginPath(); ctx.arc(b.x, b.y - 4, 42, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = p > .4 ? '#f0a04b' : '#d94a4a';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y - 4, 42, -Math.PI/2, -Math.PI/2 + p * Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    if (!state.mom.active && state.mom.cooldown <= 0 && Math.sin(now / 140) > 0) {
+      ctx.fillStyle = '#4a3728';
+      ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('SPACE — call Mom!', b.x, b.y - 60);
+    }
+  }
+
+  const m = state.mom;
+  if (m.active) {
+    shadow(m.x, m.y + 34, 26);
+    const bounce = m.phase === 'coming' ? Math.abs(Math.sin(now / 90)) * -6 : 0;
+    emoji('👩', m.x, m.y + bounce, 68, 0, m.x > b.x ? -1 : 1);
+    if (m.phase === 'grabbing') emoji('✋', m.x + 22 * (b.face || 1), m.y + 4, 26);
+  }
+
+  for (const p of state.pops) {
+    const a = 1 - p.t / (p.size > 22 ? 1500 : 900);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.fillStyle = p.color;
+    ctx.strokeStyle = 'rgba(255,255,255,.9)';
+    ctx.lineWidth = 4;
+    ctx.font = 'bold ' + p.size + 'px "Trebuchet MS", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.strokeText(p.text, p.x, p.y - p.t * 0.03);
+    ctx.fillText(p.text, p.x, p.y - p.t * 0.03);
+    ctx.restore();
+  }
+
+  if (state.transition > 0) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4a3728';
+    ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
+    ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 46);
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // hud
+  document.getElementById('toys').textContent = state.toysCollected;
+  document.getElementById('toysTotal').textContent = state.toysTotal;
+  document.getElementById('score').textContent = state.score;
+  document.getElementById('level').textContent = state.level;
+  document.getElementById('hearts').textContent = '❤️'.repeat(state.hearts) + '🤍'.repeat(3 - state.hearts);
+  const sec = Math.max(0, Math.ceil(state.timeLeft / 1000));
+  const timeEl = document.getElementById('time');
+  timeEl.textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  timeEl.classList.toggle('low', running && sec <= 10);
+  const ready = state.mom.active ? 0 : 1 - Math.max(0, state.mom.cooldown) / MOM_COOLDOWN;
+  document.getElementById('momMeterFill').style.width = (ready * 100) + '%';
+}
+
+/* ---------- loop ---------- */
+function frame(now) {
+  const dt = Math.min(48, now - last || 16);
+  last = now;
+  if (running) update(dt);
+  draw(now);
+  requestAnimationFrame(frame);
+}
+
+function start() {
+  reset();
+  running = true;
+  last = performance.now();
+  document.getElementById('startScreen').classList.add('hidden');
+  document.getElementById('endScreen').classList.add('hidden');
+}
+
+document.getElementById('startBtn').onclick = start;
+document.getElementById('againBtn').onclick = start;
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
