@@ -119,6 +119,13 @@
     <button id="startBtn">Start crawling</button>
   </div>
 
+  <div class="overlay hidden" id="mapScreen">
+    <h1 id="mapTitle">Room 1 cleared! 🎉</h1>
+    <div id="mapArt" style="width:100%;max-width:660px"></div>
+    <p id="mapNote" class="tiny"></p>
+    <button id="nextBtn">Crawl onward →</button>
+  </div>
+
   <div class="overlay hidden" id="endScreen">
     <h1 id="endTitle">Nap time 😴</h1>
     <p id="endMsg"></p>
@@ -150,9 +157,30 @@ const FURNITURE = [
 const LEVEL_TIME = 50000;  // ms per room  (was 60s)
 const MOUTH_BASE = 2800;   // ms baby holds a hazard before it's swallowed (was 3400)
 const MOM_COOLDOWN = 4800; // ms between rescues (was 4200)
-const BABY_R = 22;         // collision radius vs furniture
+const BABY_R = 40;         // collision radius vs furniture (baby is drawn ~3x now)
+const BABY_SCALE = 3;      // baby is drawn three times bigger than the base sprite
+const OBJ_SCALE = 3;       // toys & hazards are drawn three times bigger
+const ITEM_DRAW = 34 * OBJ_SCALE;  // emoji size for a floor item (~102px)
+const PICKUP_R = BABY_R + 20;      // how close the baby must be to grab an item
 const DANCE_MS = 2400;      // victory dance length when a room is cleared
 const CELEBRATE_GROW_MS = 450; // time baby takes to zoom from its spot to screen centre
+
+/* ---- the journey (the map tells this story implicitly) ----
+   A baby escapes the crib at night and crawls room by room across a dark,
+   quiet house — following crumbs toward the kitchen cookie jar, then out
+   into the moonlit yard. Each cleared room is one stop further along. */
+const ROOMS = [
+  { name: 'Nursery',      short: 'Nursery',  icon: '🍼', note: 'Wide awake, and long past bedtime…' },
+  { name: 'Hallway',      short: 'Hallway',  icon: '🚪', note: 'The house is dark and very quiet.' },
+  { name: 'Living Room',  short: 'Living',   icon: '🛋️', note: 'The TV is still faintly warm.' },
+  { name: 'Playroom',     short: 'Playroom', icon: '🧸', note: 'So many toys. Keep crawling.' },
+  { name: 'Study',        short: 'Study',    icon: '📚', note: 'Shh — do not wake the cat.' },
+  { name: 'Laundry',      short: 'Laundry',  icon: '🧺', note: 'Warm socks. Do NOT eat the socks.' },
+  { name: 'Dining Room',  short: 'Dining',   icon: '🍽️', note: 'A trail of crumbs leads onward…' },
+  { name: 'Pantry',       short: 'Pantry',   icon: '🥫', note: 'So close now. Sniff, sniff.' },
+  { name: 'Kitchen',      short: 'Kitchen',  icon: '🍪', note: 'The cookie jar. The whole point.' },
+  { name: 'Moonlit Yard', short: 'The Yard', icon: '🌙', note: 'Freedom — and the family dog.' },
+];
 
 let state, keys = {}, last = 0, running = false;
 
@@ -334,8 +362,8 @@ function resolveFurniture(b) {
       }
     }
   }
-  b.x = Math.max(26, Math.min(W - 26, b.x));
-  b.y = Math.max(26, Math.min(H - 26, b.y));
+  b.x = Math.max(BABY_R, Math.min(W - BABY_R, b.x));
+  b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y));
 }
 
 /* ---------- level building ---------- */
@@ -356,45 +384,50 @@ function buildLevel(level) {
   b.x = W/2; b.y = H/2; b.vx = 0; b.vy = 0; b.stun = 0;
   b.headScale = 1; b.mood = 'neutral'; b.moodT = 0;
 
-  // Furniture: lots of clutter, and more every room.
-  const wanted = Math.min(2 + level, 7);
+  // Obstacles carry the difficulty now: more of them, bigger, and in nastier
+  // spots each room. They grow enough to pinch the routes between the toys.
+  const wanted = Math.min(2 + level, 8);
+  const fscale = Math.min(1 + (level - 1) * 0.10, 1.6);
   let guard = 0;
-  while (state.furniture.length < wanted && guard++ < 400) {
+  while (state.furniture.length < wanted && guard++ < 600) {
     const f = pick(FURNITURE);
+    const fw = f.w * fscale, fh = f.h * fscale;
     const rect = {
-      emoji: f.emoji, w: f.w, h: f.h,
-      x: 40 + Math.random() * (W - 80 - f.w),
-      y: 40 + Math.random() * (H - 80 - f.h),
+      emoji: f.emoji, w: fw, h: fh,
+      x: 40 + Math.random() * (W - 80 - fw),
+      y: 40 + Math.random() * (H - 80 - fh),
     };
-    if (rectCircleDist(rect, b.x, b.y) < 95) continue;
-    if (state.furniture.some(o => rectsOverlap(rect, o, 24))) continue;
+    if (rectCircleDist(rect, b.x, b.y) < 150) continue;   // keep the baby's start clear
+    if (state.furniture.some(o => rectsOverlap(rect, o, 20))) continue;
     state.furniture.push(rect);
   }
 
-  // Toys are finite — collecting all of them clears the room (that's the max score).
-  const wantToys = Math.min(8 + level * 2, 18);
+  // Toys are finite — collecting all of them clears the room. Start at 3 and
+  // add one per room, capped at 10. Fewer, but each one much bigger.
+  const wantToys = Math.min(2 + level, 10);
   let placed = 0;
   for (let i = 0; i < wantToys; i++) if (placeItem(false)) placed++;
   state.toysTotal = placed;
   state.toysCollected = 0;
 
-  // A pile of starting hazards; more keep spawning.
-  const haz = Math.min(2 + Math.floor(level / 2), 5);
+  // A few starting hazards — and no red warning ring, so read the emoji.
+  const haz = Math.min(1 + Math.floor(level / 3), 3);
   for (let i = 0; i < haz; i++) placeItem(true);
 }
 
 function placeItem(bad) {
+  const M = ITEM_DRAW * 0.5;                 // keep big items fully on the floor
   let x, y, tries = 0, ok = false;
   do {
-    x = 50 + Math.random() * (W - 100);
-    y = 50 + Math.random() * (H - 100);
-    ok = Math.hypot(x - state.baby.x, y - state.baby.y) > 110 &&
-         !inFurniture(x, y, 34) &&
-         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < 42);
+    x = M + Math.random() * (W - 2 * M);
+    y = M + Math.random() * (H - 2 * M);
+    ok = Math.hypot(x - state.baby.x, y - state.baby.y) > 170 &&
+         !inFurniture(x, y, 60) &&
+         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < ITEM_DRAW * 0.8);
     tries++;
-  } while (!ok && tries < 90);
+  } while (!ok && tries < 240);
   if (!ok) return false;
-  state.items.push({ x, y, bad, emoji: pick(bad ? HAZARDS : TOYS), born: performance.now(), r: 26 });
+  state.items.push({ x, y, bad, emoji: pick(bad ? HAZARDS : TOYS), born: performance.now(), r: ITEM_DRAW * 0.42 });
   return true;
 }
 
@@ -405,7 +438,7 @@ function pop(x, y, text, color, size) {
 /* ---------- input ---------- */
 const MOVE = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
                w:'up', s:'down', a:'left', d:'right' };
-const STEP = 7;
+const STEP = 15;
 addEventListener('keydown', e => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (MOVE[k] || k === ' ') e.preventDefault();
@@ -417,8 +450,8 @@ addEventListener('keydown', e => {
     if (dir === 'right') { b.x += STEP; b.face = 1; }
     if (dir === 'up')    b.y -= STEP;
     if (dir === 'down')  b.y += STEP;
-    b.x = Math.max(26, Math.min(W - 26, b.x));
-    b.y = Math.max(26, Math.min(H - 26, b.y));
+    b.x = Math.max(BABY_R, Math.min(W - BABY_R, b.x));
+    b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y));
     resolveFurniture(b);
   }
   keys[dir || k] = true;
@@ -454,13 +487,14 @@ function update(dt) {
   b.headScale += (1 - b.headScale) * Math.min(1, 0.006 * dt);
   if (b.moodT > 0) { b.moodT -= dt; if (b.moodT <= 0) b.mood = 'neutral'; }
 
-  // Room-cleared celebration: freeze play, dance it out, then load the next room.
+  // Room-cleared celebration: freeze play, dance it out, then hand off to the
+  // map screen (the player clicks a button there to crawl to the next room).
   if (state.transition > 0) {
     state.transition -= dt;
     state.pops.forEach(p => p.t += dt);
     state.pops = state.pops.filter(p => p.t < 1500);
     updateConfetti(dt);
-    if (state.transition <= 0) buildLevel(state.level + 1);
+    if (state.transition <= 0) showMap();
     return;
   }
 
@@ -482,15 +516,15 @@ function update(dt) {
   }
   if (ax || ay) { const len = Math.hypot(ax, ay); ax /= len; ay /= len; }
 
-  const speed = (state.mouth ? 0.12 : 0.18) * (1 + state.level * 0.012);
+  const speed = (state.mouth ? 0.20 : 0.30) * (1 + state.level * 0.012);
   const targetVx = ax * speed, targetVy = ay * speed;
   const grip = Math.min(1, 0.022 * dt);
   b.vx += (targetVx - b.vx) * grip;
   b.vy += (targetVy - b.vy) * grip;
   if (!ax && !ay && Math.hypot(b.vx, b.vy) < 0.01) { b.vx = 0; b.vy = 0; }
 
-  b.x = Math.max(26, Math.min(W - 26, b.x + b.vx * dt));
-  b.y = Math.max(26, Math.min(H - 26, b.y + b.vy * dt));
+  b.x = Math.max(BABY_R, Math.min(W - BABY_R, b.x + b.vx * dt));
+  b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y + b.vy * dt));
   resolveFurniture(b);
 
   b.wobble += Math.hypot(b.vx, b.vy) * dt * 0.42;
@@ -500,7 +534,7 @@ function update(dt) {
   if (!state.mouth && b.stun <= 0) {
     for (let i = state.items.length - 1; i >= 0; i--) {
       const it = state.items[i];
-      if (Math.hypot(it.x - b.x, it.y - b.y) < 30) {
+      if (Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R) {
         state.items.splice(i, 1);
         if (it.bad) {
           state.mouth = { emoji: it.emoji, t: 0, max: Math.max(1400, MOUTH_BASE - state.level * 160) };
@@ -551,13 +585,13 @@ function update(dt) {
   if (m.active) {
     if (m.phase === 'coming') {
       const dx = b.x - m.x, dy = b.y - 4 - m.y, d = Math.hypot(dx, dy);
-      const ms = 0.62;
-      if (d < 34) { m.phase = 'grabbing'; m.grabT = 0; }
+      const ms = 0.68;
+      if (d < 56) { m.phase = 'grabbing'; m.grabT = 0; }
       else { m.x += (dx / d) * ms * dt; m.y += (dy / d) * ms * dt; }
       if (!state.mouth) { m.phase = 'leaving'; }
     } else if (m.phase === 'grabbing') {
       m.grabT += dt;
-      m.x = b.x - 30 * (b.face || 1);
+      m.x = b.x - 55 * (b.face || 1);
       m.y = b.y - 6;
       if (m.grabT > 380) {
         if (state.mouth) {
@@ -585,8 +619,8 @@ function update(dt) {
   state.spawnTimer -= dt;
   if (state.spawnTimer <= 0) {
     const hazards = state.items.filter(it => it.bad).length;
-    if (hazards < 3 + state.level) placeItem(true);
-    state.spawnTimer = Math.max(1000, 2400 - state.level * 140);
+    if (hazards < 1 + Math.floor(state.level / 2)) placeItem(true);
+    state.spawnTimer = Math.max(1800, 3400 - state.level * 120);
   }
 
   if (state.shake > 0) state.shake *= 0.88;
@@ -612,6 +646,61 @@ function gameOver() {
     `Baby collected <b>${state.score}</b> points across <b>${state.level}</b> room${state.level > 1 ? 's' : ''}.<br>` +
     `Mom needs a coffee. ☕`;
   document.getElementById('endScreen').classList.remove('hidden');
+}
+
+/* ---------- the journey map (shown between rooms) ---------- */
+// Stops snake left-to-right then back, like a board-game trail.
+const MAP_POS = [
+  [12,13],[31,13],[50,13],[69,13],[88,13],
+  [88,35],[69,35],[50,35],[31,35],[12,35],
+];
+function buildMapSVG(cleared) {
+  const n = ROOMS.length;
+  const cur  = Math.min(cleared, n) - 1;        // stop the baby just reached
+  const next = Math.min(cleared, n - 1);        // stop to crawl to next
+  let trail = '';
+  for (let i = 0; i < n - 1; i++) {
+    const [x1,y1] = MAP_POS[i], [x2,y2] = MAP_POS[i+1];
+    const done = i < cur;
+    trail += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${done ? '#a97e55' : '#d3bea3'}" ` +
+             `stroke-width="${done ? 1.4 : 1}" stroke-linecap="round" ${done ? '' : 'stroke-dasharray="2 2.6"'} />`;
+  }
+  let nodes = '';
+  for (let i = 0; i < n; i++) {
+    const [x,y] = MAP_POS[i], r = ROOMS[i];
+    let fill = '#efe3d4', ring = '#c9b49b';
+    if (i < cur)       { fill = '#cdeab3'; ring = '#7ac74f'; }   // already crawled
+    else if (i === cur){ fill = '#ffd8de'; ring = '#ef7d8e'; }   // baby is here
+    else if (i === next){ fill = '#fff2cc'; ring = '#f0c14b'; }  // next destination
+    nodes += `<circle cx="${x}" cy="${y}" r="6.4" fill="${fill}" stroke="${ring}" stroke-width="1.2"/>`;
+    nodes += `<text x="${x}" y="${y+2.3}" text-anchor="middle" font-size="6.2">${r.icon}</text>`;
+    if (i === cur) nodes += `<text x="${x}" y="${y-8.4}" text-anchor="middle" font-size="6">👶</text>`;
+    nodes += `<text x="${x}" y="${y+11.6}" text-anchor="middle" font-size="3.1" font-weight="bold" fill="#5a4636">${r.short}</text>`;
+  }
+  return `<svg viewBox="0 0 100 48" xmlns="http://www.w3.org/2000/svg" ` +
+         `style="width:100%;max-width:660px;height:auto">${trail}${nodes}</svg>`;
+}
+
+function showMap() {
+  running = false;
+  const cleared = state.level, n = ROOMS.length;
+  const next = Math.min(cleared, n - 1);
+  const done = cleared >= n;
+  document.getElementById('mapTitle').textContent = `Room ${cleared} cleared! 🎉`;
+  document.getElementById('mapArt').innerHTML = buildMapSVG(cleared);
+  document.getElementById('mapNote').textContent =
+    done ? 'The whole house, crawled end to end. Around again?' : ROOMS[next].note;
+  document.getElementById('nextBtn').textContent =
+    done ? 'One more night →' : `Crawl to the ${ROOMS[next].name} ${ROOMS[next].icon} →`;
+  document.getElementById('mapScreen').classList.remove('hidden');
+  beep(660, .12, 'sine');
+}
+
+function advanceRoom() {
+  document.getElementById('mapScreen').classList.add('hidden');
+  buildLevel(state.level + 1);
+  running = true;
+  last = performance.now();
 }
 
 /* ---------- drawing ---------- */
@@ -691,7 +780,7 @@ function drawBaby(b, now) {
 
   ctx.save();
   ctx.translate(b.x, b.y + 4);
-  ctx.scale(b.face, 1);
+  ctx.scale(b.face * BABY_SCALE, BABY_SCALE);
   const ph = b.wobble;
   const bob = Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
   ctx.translate(0, -bob);
@@ -936,16 +1025,12 @@ function draw(now) {
   drawFloor();
   drawFurniture();
 
+  // Toys and hazards look the same on the floor — no warning ring. The player
+  // has to recognise which emoji is a toy and which is trouble.
   for (const it of state.items) {
-    const bob = Math.sin((now - it.born) / 380) * 3;
-    if (it.bad) {
-      ctx.save();
-      ctx.fillStyle = 'rgba(217,74,74,.12)';
-      ctx.beginPath(); ctx.arc(it.x, it.y + bob, 24, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-    shadow(it.x, it.y + 18, 13);
-    emoji(it.emoji, it.x, it.y + bob, 34);
+    const bob = Math.sin((now - it.born) / 380) * 5;
+    shadow(it.x, it.y + ITEM_DRAW * 0.30, ITEM_DRAW * 0.30);
+    emoji(it.emoji, it.x, it.y + bob, ITEM_DRAW);
   }
 
   const b = state.baby;
@@ -955,37 +1040,37 @@ function draw(now) {
     shadow(cx, cy + scale * 56, scale * 30);
     drawBabyFront(cx, cy, scale, now, danceT, state.dance);
   } else {
-    shadow(b.x, b.y + 22, 26);
+    shadow(b.x, b.y + 52, 52);
     drawBaby(b, now);
   }
   drawConfetti();
 
   if (state.mouth) {
     const p = 1 - state.mouth.t / state.mouth.max;
-    emoji(state.mouth.emoji, b.x + 22 * b.face, b.y - 6, 20);
+    emoji(state.mouth.emoji, b.x + 44 * b.face, b.y - 30, 46);
     ctx.save();
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 8;
     ctx.strokeStyle = 'rgba(255,255,255,.65)';
-    ctx.beginPath(); ctx.arc(b.x, b.y - 4, 42, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.x, b.y - 4, 70, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = p > .4 ? '#f0a04b' : '#d94a4a';
     ctx.beginPath();
-    ctx.arc(b.x, b.y - 4, 42, -Math.PI/2, -Math.PI/2 + p * Math.PI * 2);
+    ctx.arc(b.x, b.y - 4, 70, -Math.PI/2, -Math.PI/2 + p * Math.PI * 2);
     ctx.stroke();
     ctx.restore();
     if (!state.mom.active && state.mom.cooldown <= 0 && Math.sin(now / 140) > 0) {
       ctx.fillStyle = '#4a3728';
-      ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
+      ctx.font = 'bold 16px "Trebuchet MS", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('SPACE — call Mom!', b.x, b.y - 60);
+      ctx.fillText('SPACE — call Mom!', b.x, b.y - 92);
     }
   }
 
   const m = state.mom;
   if (m.active) {
-    shadow(m.x, m.y + 34, 26);
+    shadow(m.x, m.y + 48, 34);
     const bounce = m.phase === 'coming' ? Math.abs(Math.sin(now / 90)) * -6 : 0;
-    emoji('👩', m.x, m.y + bounce, 68, 0, m.x > b.x ? -1 : 1);
-    if (m.phase === 'grabbing') emoji('✋', m.x + 22 * (b.face || 1), m.y + 4, 26);
+    emoji('👩', m.x, m.y + bounce, 100, 0, m.x > b.x ? -1 : 1);
+    if (m.phase === 'grabbing') emoji('✋', m.x + 40 * (b.face || 1), m.y + 4, 40);
   }
 
   for (const p of state.pops) {
@@ -1002,21 +1087,13 @@ function draw(now) {
     ctx.restore();
   }
 
-  if (state.transition > 0) {
-    // Captions sit near the bottom edge — the dancing baby now fills the
-    // middle of the stage, so text can't live there anymore.
+  if (state.transition > 0 && state.dance) {
+    // The dancing baby fills the middle of the stage, so its caption sits low.
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = '#4a3728';
-    if (state.dance) {
-      ctx.font = 'bold 22px "Trebuchet MS", sans-serif';
-      ctx.fillText('💃 ' + state.dance.name + '! 💃', W/2, H - 40);
-      ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
-      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H - 16);
-    } else {
-      ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
-      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H - 20);
-    }
+    ctx.font = 'bold 22px "Trebuchet MS", sans-serif';
+    ctx.fillText('💃 ' + state.dance.name + '! 💃', W/2, H - 26);
     ctx.restore();
   }
 
@@ -1051,10 +1128,12 @@ function start() {
   last = performance.now();
   document.getElementById('startScreen').classList.add('hidden');
   document.getElementById('endScreen').classList.add('hidden');
+  document.getElementById('mapScreen').classList.add('hidden');
 }
 
 document.getElementById('startBtn').onclick = start;
 document.getElementById('againBtn').onclick = start;
+document.getElementById('nextBtn').onclick = advanceRoom;
 reset();
 requestAnimationFrame(frame);
 </script>
