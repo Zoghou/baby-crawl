@@ -17,6 +17,14 @@ A small browser game: baby crawls around the house hunting for toys, navigating 
 - **WASD** or **Arrow keys** — crawl
 - **Space** — call Mom
 
+### On a phone
+
+All three variants take touch input. An on-screen joystick (8-way, so diagonals work) sits bottom-left and a **MOM** button bottom-right.
+
+They appear automatically on any device reporting a coarse pointer, and the toggle on the landing page overrides that either way — useful for testing touch controls on a desktop, or turning them off on a tablet with a keyboard. The choice is remembered in `localStorage`. You can also force it per-page with `?touch=1` or `?touch=0`.
+
+`touch-controls.js` works by synthesizing the same `keydown`/`keyup` events the games already listen for, so the game code itself has no knowledge of touch and needed no changes.
+
 ## Playing
 
 Each room has a finite number of toys; collecting all of them clears the room and is the maximum score for it. You have three hearts and a per-room timer. Rooms get busier as you go — more furniture to crawl around and more hazards to keep out of baby's mouth.
