@@ -1257,9 +1257,25 @@ function start() {
   document.getElementById('mapScreen').classList.add('hidden');
 }
 
-document.getElementById('startBtn').onclick = start;
-document.getElementById('againBtn').onclick = start;
-document.getElementById('nextBtn').onclick = advanceRoom;
+/* Fire on the first pointer release, not just `click`. Some mobile webviews
+   and embeds swallow the first synthesized click (to focus, or as a ghost
+   tap), so a plain onclick handler seems to need two taps. `pointerup` fires
+   on that first interaction; a short dedupe ignores the click that follows it,
+   and `click` stays wired as the keyboard/fallback path. */
+function onTap(el, fn) {
+  let last = -1e9;
+  const run = e => {
+    const t = e.timeStamp || performance.now();
+    if (t - last < 600) return;   // ignore the paired click right after pointerup
+    last = t;
+    fn();
+  };
+  el.addEventListener('pointerup', run);
+  el.addEventListener('click', run);
+}
+onTap(document.getElementById('startBtn'), start);
+onTap(document.getElementById('againBtn'), start);
+onTap(document.getElementById('nextBtn'), advanceRoom);
 reset();
 requestAnimationFrame(frame);
 </script>
