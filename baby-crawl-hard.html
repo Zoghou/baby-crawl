@@ -151,6 +151,7 @@ const LEVEL_TIME = 50000;  // ms per room  (was 60s)
 const MOUTH_BASE = 2800;   // ms baby holds a hazard before it's swallowed (was 3400)
 const MOM_COOLDOWN = 4800; // ms between rescues (was 4200)
 const BABY_R = 22;         // collision radius vs furniture
+const DANCE_MS = 2400;     // victory dance length when a room is cleared
 
 let state, keys = {}, last = 0, running = false;
 
@@ -170,6 +171,8 @@ function reset() {
     spawnTimer: 0,
     shake: 0,
     pops: [],
+    dance: null,        // the victory dance currently playing (see DANCES)
+    confetti: [],
   };
   buildLevel(1);
 }
@@ -196,6 +199,100 @@ function react(mood, ms) {
   b.mood = mood;
   b.moodT = ms;
   b.headScale = 1.42;
+}
+
+/* ---------- victory dances ----------
+   Every cleared room plays one of these for DANCE_MS. Each pose(t) returns
+   the knobs drawBaby() needs to bend the same stick-limb baby into a very
+   different (and hopefully funny) shape: sw/armUp drive limb angles like
+   the normal crawl-swing does, bounce/rot/scaleX move the whole body. */
+const DANCES = [
+  { name: 'The Wiggle Worm', pose: t => {
+      const ph = t / 90;
+      return { sw: Math.sin(ph) * 1.7, bounce: Math.abs(Math.sin(ph * .55)) * 6 + 2,
+               rot: Math.sin(ph * .45) * .24, scaleX: 1, armUp: .3 };
+    } },
+  { name: 'Disco Baby', pose: t => {
+      const ph = t / 150;
+      return { sw: Math.sin(ph) * .7, bounce: Math.abs(Math.sin(ph * 2)) * 4,
+               rot: 0, scaleX: 1, armUp: Math.sin(ph) > 0 ? 1.3 : -1.3 };
+    } },
+  { name: 'The Robot', pose: t => {
+      const step = Math.floor(t / 170) % 4;
+      return { sw: [-1.2, 0, 1.2, 0][step], bounce: step % 2 ? 5 : 0,
+               rot: (step - 1.5) * .06, scaleX: 1, armUp: step % 2 ? 1.4 : -.4 };
+    } },
+  { name: 'The Twist', pose: t => {
+      const ph = t / 130;
+      return { sw: .2, bounce: Math.abs(Math.sin(ph * 2)) * 3,
+               rot: 0, scaleX: Math.sin(ph) > 0 ? 1 : -1, armUp: .5 };
+    } },
+  { name: 'Sprinkler Time', pose: t => {
+      const ph = t / 110;
+      return { sw: Math.sin(ph * .4) * .5, bounce: 2 + Math.abs(Math.sin(ph)) * 2,
+               rot: Math.sin(ph * .25) * .14, scaleX: 1, armUp: Math.sin(ph) * 1.6 };
+    } },
+  { name: 'Head Bobble Mania', pose: t => {
+      const ph = t / 75;
+      return { sw: Math.sin(ph) * .5, bounce: Math.abs(Math.sin(ph)) * 8,
+               rot: Math.sin(ph * 1.6) * .34, scaleX: 1, armUp: 1.1 };
+    } },
+  { name: 'The Moonwalk', pose: t => {
+      const ph = t / 130;
+      return { sw: Math.sin(ph) * 1.4, bounce: Math.abs(Math.sin(ph * 2)) * 2,
+               rot: -.1, scaleX: 1, armUp: -.7 };
+    } },
+  { name: 'Jazz Hands Freeze', pose: t => {
+      const freeze = (t % 900) > 640, ph = t / 65;
+      return { sw: freeze ? 0 : Math.sin(ph) * 1.5, bounce: freeze ? 0 : Math.abs(Math.sin(ph)) * 5,
+               rot: freeze ? Math.sin(t) * .02 : 0, scaleX: 1, armUp: 1.5 };
+    } },
+];
+let lastDanceIdx = -1;
+function pickDance() {
+  let i;
+  do { i = Math.floor(Math.random() * DANCES.length); } while (DANCES.length > 1 && i === lastDanceIdx);
+  lastDanceIdx = i;
+  return DANCES[i];
+}
+
+const CONFETTI_COLORS = ['#ef7d8e', '#7ac74f', '#4fb8d6', '#f0c14b', '#b98ee0', '#ff9f5a'];
+function spawnConfetti(x, y) {
+  for (let i = 0; i < 24; i++) {
+    const a = Math.random() * Math.PI * 2;
+    state.confetti.push({
+      x, y,
+      vx: Math.cos(a) * (1 + Math.random() * 2.2),
+      vy: -2 - Math.random() * 2.5,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * .3,
+      color: pick(CONFETTI_COLORS),
+      size: 5 + Math.random() * 4,
+      t: 0,
+    });
+  }
+}
+function updateConfetti(dt) {
+  for (const c of state.confetti) {
+    c.vy += 0.0022 * dt;
+    c.x += c.vx * dt * 0.06;
+    c.y += c.vy * dt * 0.06;
+    c.rot += c.vr * dt * 0.06;
+    c.t += dt;
+  }
+  state.confetti = state.confetti.filter(c => c.t < DANCE_MS);
+}
+function drawConfetti() {
+  for (const c of state.confetti) {
+    const a = Math.max(0, 1 - c.t / DANCE_MS);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * .6);
+    ctx.restore();
+  }
 }
 
 /* ---------- geometry helpers ---------- */
@@ -248,6 +345,8 @@ function buildLevel(level) {
   state.mom = { x: -80, y: H/2, active: false, phase: 'idle', cooldown: 0, target: null };
   state.timeLeft = LEVEL_TIME;
   state.transition = 0;
+  state.dance = null;
+  state.confetti = [];
   state.spawnTimer = 1800;
 
   const b = state.baby;
@@ -352,11 +451,12 @@ function update(dt) {
   b.headScale += (1 - b.headScale) * Math.min(1, 0.006 * dt);
   if (b.moodT > 0) { b.moodT -= dt; if (b.moodT <= 0) b.mood = 'neutral'; }
 
-  // Room-cleared celebration: freeze play, then load the next room.
+  // Room-cleared celebration: freeze play, dance it out, then load the next room.
   if (state.transition > 0) {
     state.transition -= dt;
     state.pops.forEach(p => p.t += dt);
     state.pops = state.pops.filter(p => p.t < 1500);
+    updateConfetti(dt);
     if (state.transition <= 0) buildLevel(state.level + 1);
     return;
   }
@@ -412,9 +512,11 @@ function update(dt) {
           pop(it.x, it.y, '+10', '#3f8f2f');
           beep(660 + Math.random() * 120, .09, 'triangle');
           if (state.toysCollected >= state.toysTotal) {
-            state.transition = 1600;
-            react('happy', 1600);
+            state.dance = pickDance();
+            state.transition = DANCE_MS;
+            react('happy', DANCE_MS);
             pop(b.x, b.y - 66, 'Room cleared! 🎉', '#ef7d8e', 26);
+            spawnConfetti(b.x, b.y - 30);
             beep(880, .18, 'sine');
             setTimeout(() => beep(1175, .2, 'sine'), 150);
             return;
@@ -575,7 +677,7 @@ function shadow(x, y, rx) {
 
 /* A whole hand-drawn baby on all fours. Faces +x locally; flipped by b.face.
    Crawls (limbs swing) and its head puffs + smiles/cries with `mood`. */
-function drawBaby(b, now) {
+function drawBaby(b, now, dance) {
   const SKIN = '#f7c69f', SKIN_D = '#e4a97c';
   const SUIT = '#8fd0e6', SUIT_D = '#5fa9c6';
   const HAIR = '#7a5638';
@@ -585,14 +687,16 @@ function drawBaby(b, now) {
 
   ctx.save();
   ctx.translate(b.x, b.y + 4);
-  ctx.scale(b.face, 1);
+  if (dance) ctx.rotate(dance.rot || 0);
+  ctx.scale(b.face * (dance ? dance.scaleX : 1), 1);
   const ph = b.wobble;
-  const bob = Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
+  const bob = dance ? dance.bounce : Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
   ctx.translate(0, -bob);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  const sw = moving ? Math.sin(ph) : 0;   // crawl swing
+  const sw = dance ? dance.sw : (moving ? Math.sin(ph) : 0);   // crawl swing / dance swing
+  const armBias = dance ? dance.armUp * 0.9 : 0;               // dance arms-up offset
 
   // helper: draw a limb, return the [x,y] of its tip
   function limb(hx, hy, len, ang, w, col) {
@@ -610,7 +714,7 @@ function drawBaby(b, now) {
   let p;
   p = limb(-14, 2, 21, Math.PI/2 - 0.35 - sw*0.55, 10, SUIT_D);  // far leg
   nub(p[0], p[1], 5.5, SKIN_D);
-  p = limb(12, -1, 20, Math.PI/2 + 0.30 + sw*0.55, 8, SKIN_D);   // far arm
+  p = limb(12, -1, 20, Math.PI/2 + 0.30 + sw*0.55 - armBias, 8, SKIN_D);   // far arm
   nub(p[0], p[1], 5, SKIN_D);
 
   // --- diaper bump + onesie torso ---
@@ -626,7 +730,7 @@ function drawBaby(b, now) {
   // --- near-side limbs (brighter, on top of torso) ---
   p = limb(-12, 5, 22, Math.PI/2 - 0.35 + sw*0.55, 12, SUIT);    // near leg
   nub(p[0], p[1], 6.5, SKIN);
-  p = limb(15, 1, 21, Math.PI/2 + 0.30 - sw*0.55, 9, SKIN);      // near arm
+  p = limb(15, 1, 21, Math.PI/2 + 0.30 - sw*0.55 - armBias, 9, SKIN);      // near arm
   nub(p[0], p[1], 5.5, SKIN);
 
   // --- head ---
@@ -725,7 +829,12 @@ function draw(now) {
 
   const b = state.baby;
   shadow(b.x, b.y + 22, 26);
-  drawBaby(b, now);
+  if (state.transition > 0 && state.dance) {
+    drawBaby(b, now, state.dance.pose(DANCE_MS - state.transition));
+  } else {
+    drawBaby(b, now);
+  }
+  drawConfetti();
 
   if (state.mouth) {
     const p = 1 - state.mouth.t / state.mouth.max;
@@ -773,8 +882,15 @@ function draw(now) {
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = '#4a3728';
-    ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
-    ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 46);
+    if (state.dance) {
+      ctx.font = 'bold 22px "Trebuchet MS", sans-serif';
+      ctx.fillText('💃 ' + state.dance.name + '! 💃', W/2, H/2 + 48);
+      ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
+      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 74);
+    } else {
+      ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
+      ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 46);
+    }
     ctx.restore();
   }
 
