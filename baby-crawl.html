@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Baby's First Crawl</title>
+<title>Baby Crawl</title>
 <style>
   :root {
     --rug: #f6e2d0;
@@ -19,7 +19,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: radial-gradient(circle at 50% 20%, #fff6ec, #e6cdb0);
+    background: radial-gradient(circle at 50% 20%, #d6f5c8, #7ac74f);
     font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
     color: var(--ink);
     padding: 16px;
@@ -45,6 +45,7 @@
   #time { font-variant-numeric: tabular-nums; }
   #time.low { color: #d94a4a; animation: pulse .6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .35; } }
+  .badge { font-size: 12px; background: var(--ink); color: #fff; padding: 2px 8px; border-radius: 99px; }
   .meter {
     width: 120px; height: 12px;
     background: #e7dcd2;
@@ -91,6 +92,9 @@
     background: var(--accent); color: #fff;
     border: 3px solid var(--ink); border-bottom-width: 6px;
     border-radius: 14px; cursor: pointer;
+    /* Without this, mobile browsers hold the first tap back to watch for a
+       double-tap-to-zoom, so the button seems to need two taps. */
+    touch-action: manipulation;
   }
   button:active { transform: translateY(3px); border-bottom-width: 3px; }
   .tiny { font-size: 13px; opacity: .7; }
@@ -102,7 +106,7 @@
     <span>🧸 <span id="toys">0</span>/<span id="toysTotal">0</span></span>
     <span>Score <span id="score">0</span></span>
     <span>Room <span id="level">1</span></span>
-    <span>⏱ <span id="time">1:00</span></span>
+    <span>⏱ <span id="time">0:50</span></span>
     <span class="spacer"></span>
     <span>Mom <div class="meter" style="display:inline-block;vertical-align:middle"><div id="momMeterFill"></div></div></span>
     <span id="hearts">❤️❤️❤️</span>
@@ -110,11 +114,18 @@
   <canvas id="game" width="900" height="580"></canvas>
 
   <div class="overlay" id="startScreen">
-    <h1>👶 Baby's First Crawl</h1>
-    <p>Baby is off across the living room rug, hunting for toys — but the house is full of furniture to crawl around, and baby puts <em>everything</em> in their mouth.</p>
+    <h1>👶 Baby Crawl</h1>
+    <p>Baby is off across a cluttered house hunting for toys — and puts <em>everything</em> in their mouth.</p>
     <p><kbd>WASD</kbd> or <kbd>Arrows</kbd> to crawl · <kbd>Space</kbd> to call Mom</p>
-    <p class="tiny">Grab <b>every</b> toy in the room before the <b>60&nbsp;second</b> timer runs out to move on. Bump into 🛋️🛏️🪑 and you have to go around. If baby mouths something dangerous 🧦🔌🪙, call Mom fast — she has to fish it out in time.</p>
+    <p class="tiny">Grab <b>every</b> toy before the <b>50&nbsp;second</b> clock runs out. Crawl <b>around</b> the furniture 🛋️🛏️🪑. Mouth something dangerous 🧦🔌🪙 and Mom has very little time to fish it out — and the rooms only get more crowded.</p>
     <button id="startBtn">Start crawling</button>
+  </div>
+
+  <div class="overlay hidden" id="mapScreen">
+    <h1 id="mapTitle">Room 1 cleared! 🎉</h1>
+    <div id="mapArt" style="width:100%;max-width:660px"></div>
+    <p id="mapNote" class="tiny"></p>
+    <button id="nextBtn">Crawl onward →</button>
   </div>
 
   <div class="overlay hidden" id="endScreen">
@@ -144,16 +155,41 @@ const FURNITURE = [
   { emoji:'🎁', w:70,  h:70 },    // present
 ];
 
-const LEVEL_TIME = 60000;  // ms per room
-const MOUTH_BASE = 3400;   // ms baby holds a hazard before it's swallowed
-const MOM_COOLDOWN = 4200; // ms
-const BABY_R = 22;         // collision radius vs furniture
+// --- Hard-mode tuning (crank these to taste) ---
+const LEVEL_TIME = 50000;  // ms per room  (was 60s)
+const MOUTH_BASE = 2800;   // ms baby holds a hazard before it's swallowed (was 3400)
+const MOM_COOLDOWN = 4800; // ms between rescues (was 4200)
+const BABY_R = 40;         // collision radius vs furniture (baby is drawn ~3x now)
+const BABY_SCALE = 3;      // baby is drawn three times bigger than the base sprite
+const OBJ_SCALE = 3;       // toys & hazards are drawn three times bigger
+const ITEM_DRAW = 34 * OBJ_SCALE;  // emoji size for a floor item (~102px)
+const PICKUP_R = BABY_R + 20;      // how close the baby must be to grab an item
+const DANCE_MS = 2400;      // victory dance length when a room is cleared
+const CELEBRATE_GROW_MS = 450; // time baby takes to zoom from its spot to screen centre
+
+/* ---- the journey (the map tells this story implicitly) ----
+   A baby escapes the crib at night and crawls room by room across a dark,
+   quiet house — following crumbs toward the kitchen cookie jar, then out
+   into the moonlit yard. Each cleared room is one stop further along. */
+const ROOMS = [
+  { name: 'Nursery',      short: 'Nursery',  icon: '🍼', note: 'Wide awake, and long past bedtime…' },
+  { name: 'Hallway',      short: 'Hallway',  icon: '🚪', note: 'The house is dark and very quiet.' },
+  { name: 'Living Room',  short: 'Living',   icon: '🛋️', note: 'The TV is still faintly warm.' },
+  { name: 'Playroom',     short: 'Playroom', icon: '🧸', note: 'So many toys. Keep crawling.' },
+  { name: 'Study',        short: 'Study',    icon: '📚', note: 'Shh — do not wake the cat.' },
+  { name: 'Laundry',      short: 'Laundry',  icon: '🧺', note: 'Warm socks. Do NOT eat the socks.' },
+  { name: 'Dining Room',  short: 'Dining',   icon: '🍽️', note: 'A trail of crumbs leads onward…' },
+  { name: 'Pantry',       short: 'Pantry',   icon: '🥫', note: 'So close now. Sniff, sniff.' },
+  { name: 'Kitchen',      short: 'Kitchen',  icon: '🍪', note: 'The cookie jar. The whole point.' },
+  { name: 'Moonlit Yard', short: 'The Yard', icon: '🌙', note: 'Freedom — and the family dog.' },
+];
 
 let state, keys = {}, last = 0, running = false;
 
 function reset() {
   state = {
-    baby:  { x: W/2, y: H/2, vx: 0, vy: 0, wobble: 0, face: 1, stun: 0 },
+    baby:  { x: W/2, y: H/2, vx: 0, vy: 0, wobble: 0, face: 1, stun: 0,
+             headScale: 1, mood: 'neutral', moodT: 0 },
     mom:   { x: -80, y: H/2, active: false, phase: 'idle', cooldown: 0, target: null },
     items: [],
     furniture: [],
@@ -166,6 +202,9 @@ function reset() {
     spawnTimer: 0,
     shake: 0,
     pops: [],
+    dance: null,        // the victory dance currently playing (see DANCES)
+    danceFrom: null,    // { x, y } baby was standing at when the room cleared
+    confetti: [],
   };
   buildLevel(1);
 }
@@ -185,6 +224,108 @@ function beep(freq, dur = 0.1, type = 'sine', gain = 0.06) {
 }
 
 const pick = a => a[Math.floor(Math.random() * a.length)];
+
+// Kick off a facial reaction: head briefly puffs up + a mood.
+function react(mood, ms) {
+  const b = state.baby;
+  b.mood = mood;
+  b.moodT = ms;
+  b.headScale = 1.42;
+}
+
+/* ---------- victory dances ----------
+   Every cleared room plays one of these for DANCE_MS. Each pose(t) returns
+   the knobs drawBaby() needs to bend the same stick-limb baby into a very
+   different (and hopefully funny) shape: sw/armUp drive limb angles like
+   the normal crawl-swing does, bounce/rot/scaleX move the whole body. */
+const DANCES = [
+  { name: 'The Wiggle Worm', pose: t => {
+      const ph = t / 90;
+      return { sw: Math.sin(ph) * 1.7, bounce: Math.abs(Math.sin(ph * .55)) * 6 + 2,
+               rot: Math.sin(ph * .45) * .24, scaleX: 1, armUp: .3 };
+    } },
+  { name: 'Disco Baby', pose: t => {
+      const ph = t / 150;
+      return { sw: Math.sin(ph) * .7, bounce: Math.abs(Math.sin(ph * 2)) * 4,
+               rot: 0, scaleX: 1, armUp: Math.sin(ph) > 0 ? 1.3 : -1.3 };
+    } },
+  { name: 'The Robot', pose: t => {
+      const step = Math.floor(t / 170) % 4;
+      return { sw: [-1.2, 0, 1.2, 0][step], bounce: step % 2 ? 5 : 0,
+               rot: (step - 1.5) * .06, scaleX: 1, armUp: step % 2 ? 1.4 : -.4 };
+    } },
+  { name: 'The Twist', pose: t => {
+      const ph = t / 130;
+      return { sw: .2, bounce: Math.abs(Math.sin(ph * 2)) * 3,
+               rot: 0, scaleX: Math.sin(ph) > 0 ? 1 : -1, armUp: .5 };
+    } },
+  { name: 'Sprinkler Time', pose: t => {
+      const ph = t / 110;
+      return { sw: Math.sin(ph * .4) * .5, bounce: 2 + Math.abs(Math.sin(ph)) * 2,
+               rot: Math.sin(ph * .25) * .14, scaleX: 1, armUp: Math.sin(ph) * 1.6 };
+    } },
+  { name: 'Head Bobble Mania', pose: t => {
+      const ph = t / 75;
+      return { sw: Math.sin(ph) * .5, bounce: Math.abs(Math.sin(ph)) * 8,
+               rot: Math.sin(ph * 1.6) * .34, scaleX: 1, armUp: 1.1 };
+    } },
+  { name: 'The Moonwalk', pose: t => {
+      const ph = t / 130;
+      return { sw: Math.sin(ph) * 1.4, bounce: Math.abs(Math.sin(ph * 2)) * 2,
+               rot: -.1, scaleX: 1, armUp: -.7 };
+    } },
+  { name: 'Jazz Hands Freeze', pose: t => {
+      const freeze = (t % 900) > 640, ph = t / 65;
+      return { sw: freeze ? 0 : Math.sin(ph) * 1.5, bounce: freeze ? 0 : Math.abs(Math.sin(ph)) * 5,
+               rot: freeze ? Math.sin(t) * .02 : 0, scaleX: 1, armUp: 1.5 };
+    } },
+];
+let lastDanceIdx = -1;
+function pickDance() {
+  let i;
+  do { i = Math.floor(Math.random() * DANCES.length); } while (DANCES.length > 1 && i === lastDanceIdx);
+  lastDanceIdx = i;
+  return DANCES[i];
+}
+
+const CONFETTI_COLORS = ['#ef7d8e', '#7ac74f', '#4fb8d6', '#f0c14b', '#b98ee0', '#ff9f5a'];
+function spawnConfetti(x, y) {
+  for (let i = 0; i < 24; i++) {
+    const a = Math.random() * Math.PI * 2;
+    state.confetti.push({
+      x, y,
+      vx: Math.cos(a) * (1 + Math.random() * 2.2),
+      vy: -2 - Math.random() * 2.5,
+      rot: Math.random() * Math.PI * 2,
+      vr: (Math.random() - 0.5) * .3,
+      color: pick(CONFETTI_COLORS),
+      size: 5 + Math.random() * 4,
+      t: 0,
+    });
+  }
+}
+function updateConfetti(dt) {
+  for (const c of state.confetti) {
+    c.vy += 0.0022 * dt;
+    c.x += c.vx * dt * 0.06;
+    c.y += c.vy * dt * 0.06;
+    c.rot += c.vr * dt * 0.06;
+    c.t += dt;
+  }
+  state.confetti = state.confetti.filter(c => c.t < DANCE_MS);
+}
+function drawConfetti() {
+  for (const c of state.confetti) {
+    const a = Math.max(0, 1 - c.t / DANCE_MS);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(c.x, c.y);
+    ctx.rotate(c.rot);
+    ctx.fillStyle = c.color;
+    ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * .6);
+    ctx.restore();
+  }
+}
 
 /* ---------- geometry helpers ---------- */
 function rectsOverlap(a, b, pad = 0) {
@@ -208,7 +349,6 @@ function resolveFurniture(b) {
     const dx = b.x - nx, dy = b.y - ny, d = Math.hypot(dx, dy);
     if (d < BABY_R) {
       if (d < 0.0001) {
-        // Center is inside the rect — eject along the nearest edge.
         const left = b.x - f.x, right = f.x + f.w - b.x;
         const top = b.y - f.y, bottom = f.y + f.h - b.y;
         const m = Math.min(left, right, top, bottom);
@@ -224,11 +364,89 @@ function resolveFurniture(b) {
       }
     }
   }
-  b.x = Math.max(26, Math.min(W - 26, b.x));
-  b.y = Math.max(26, Math.min(H - 26, b.y));
+  b.x = Math.max(BABY_R, Math.min(W - BABY_R, b.x));
+  b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y));
+}
+
+/* ---------- reachability ----------
+   The room is only fair if the baby can crawl from its start to every toy
+   WITHOUT being forced through a hazard's pickup radius. We prove that with a
+   coarse flood fill: mark each grid cell the baby's centre can occupy (clear
+   of furniture and walls), optionally also treating hazard pickup zones as
+   walls, then BFS out from the start cell. */
+const CELL = 18;
+const GW = Math.ceil(W / CELL), GH = Math.ceil(H / CELL);
+// Demand a bit more clearance than the true radius so a corridor the coarse
+// grid rates "passable" is comfortably passable in actual play (never tighter).
+const CLEAR_MARGIN = 12;
+
+function cellClear(cx, cy) {
+  const r = BABY_R + CLEAR_MARGIN;
+  if (cx < r || cx > W - r || cy < r || cy > H - r) return false;
+  for (const f of state.furniture) if (rectCircleDist(f, cx, cy) < r) return false;
+  return true;
+}
+function computeReachable(blocked) {
+  const grid = new Uint8Array(GW * GH);
+  const passable = (i, j) => {
+    const cx = i * CELL + CELL / 2, cy = j * CELL + CELL / 2;
+    if (!cellClear(cx, cy)) return false;
+    return !(blocked && blocked(cx, cy));
+  };
+  const si = Math.min(GW - 1, Math.max(0, Math.floor(state.baby.x / CELL)));
+  const sj = Math.min(GH - 1, Math.max(0, Math.floor(state.baby.y / CELL)));
+  const stack = [];
+  if (passable(si, sj)) { grid[sj * GW + si] = 1; stack.push(si, sj); }
+  const NB = [1,0, -1,0, 0,1, 0,-1, 1,1, 1,-1, -1,1, -1,-1];
+  while (stack.length) {
+    const j = stack.pop(), i = stack.pop();
+    for (let k = 0; k < NB.length; k += 2) {
+      const ni = i + NB[k], nj = j + NB[k + 1];
+      if (ni < 0 || nj < 0 || ni >= GW || nj >= GH) continue;
+      if (grid[nj * GW + ni]) continue;
+      if (passable(ni, nj)) { grid[nj * GW + ni] = 1; stack.push(ni, nj); }
+    }
+  }
+  let count = 0; for (let n = 0; n < grid.length; n++) count += grid[n];
+  return {
+    count,
+    at(x, y) {
+      const i = Math.floor(x / CELL), j = Math.floor(y / CELL);
+      if (i < 0 || j < 0 || i >= GW || j >= GH) return false;
+      return grid[j * GW + i] === 1;
+    },
+  };
+}
+// A blocker that walls off every hazard's pickup radius.
+function hazardWalls() {
+  const hz = state.items.filter(it => it.bad);
+  const R = PICKUP_R + 8;
+  return (cx, cy) => hz.some(h => Math.hypot(h.x - cx, h.y - cy) < R);
+}
+// True when the start and every toy sit in the same reachable region.
+function toysAllSafe(reach) {
+  const b = state.baby;
+  return reach.at(b.x, b.y) && state.items.every(it => it.bad || reach.at(it.x, it.y));
 }
 
 /* ---------- level building ---------- */
+function placeFurniture(count, fscale, b) {
+  state.furniture = [];
+  let guard = 0;
+  while (state.furniture.length < count && guard++ < 600) {
+    const f = pick(FURNITURE);
+    const fw = f.w * fscale, fh = f.h * fscale;
+    const rect = {
+      emoji: f.emoji, w: fw, h: fh,
+      x: 40 + Math.random() * (W - 80 - fw),
+      y: 40 + Math.random() * (H - 80 - fh),
+    };
+    if (rectCircleDist(rect, b.x, b.y) < 150) continue;   // keep the baby's start clear
+    if (state.furniture.some(o => rectsOverlap(rect, o, 20))) continue;
+    state.furniture.push(rect);
+  }
+}
+
 function buildLevel(level) {
   state.level = level;
   state.items = [];
@@ -237,51 +455,94 @@ function buildLevel(level) {
   state.mom = { x: -80, y: H/2, active: false, phase: 'idle', cooldown: 0, target: null };
   state.timeLeft = LEVEL_TIME;
   state.transition = 0;
-  state.spawnTimer = 2200;
+  state.dance = null;
+  state.danceFrom = null;
+  state.confetti = [];
+  state.spawnTimer = 1800;
 
-  // Baby starts back in the middle of the room.
   const b = state.baby;
   b.x = W/2; b.y = H/2; b.vx = 0; b.vy = 0; b.stun = 0;
+  b.headScale = 1; b.mood = 'neutral'; b.moodT = 0;
 
-  // Furniture: more clutter each room.
-  const wanted = Math.min(1 + level, 6);
-  let guard = 0;
-  while (state.furniture.length < wanted && guard++ < 300) {
-    const f = pick(FURNITURE);
-    const rect = {
-      emoji: f.emoji, w: f.w, h: f.h,
-      x: 40 + Math.random() * (W - 80 - f.w),
-      y: 40 + Math.random() * (H - 80 - f.h),
-    };
-    if (rectCircleDist(rect, b.x, b.y) < 95) continue;           // keep baby's start clear
-    if (state.furniture.some(o => rectsOverlap(rect, o, 30))) continue; // don't stack furniture
-    state.furniture.push(rect);
+  // Obstacles carry the difficulty: more of them, bigger, in nastier spots each
+  // room. Toys start at 3 and add one per room, capped at 10.
+  const wantToys = Math.min(2 + level, 10);
+  const wantFurn = Math.min(2 + level, 8);
+  const fscale   = Math.min(1 + (level - 1) * 0.10, 1.6);
+  const wantHaz  = Math.min(1 + Math.floor(level / 3), 3);
+
+  // Build layouts until one fits every toy reachably (ideally with every hazard
+  // avoidable too); otherwise keep the best attempt and repair it below.
+  let best = null;
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const relax = attempt > 18;                 // ease off if the room is stubborn
+    placeFurniture(relax ? Math.max(2, wantFurn - 2) : wantFurn, relax ? fscale * 0.9 : fscale, b);
+    const reach = computeReachable();
+    if (reach.count < GW * GH * 0.2 && !relax) continue;   // furniture walled the room off
+
+    state.items = [];
+    let placed = 0;
+    for (let i = 0; i < wantToys; i++) if (placeItem(false, reach)) placed++;
+
+    // Place hazards where they don't seal a toy off; reject spots that do.
+    // (Base item spacing already keeps them well outside a toy's pickup range,
+    // so grabbing a toy can never grab a neighbouring hazard by accident.)
+    for (let i = 0; i < wantHaz; i++) {
+      for (let t = 0; t < 8; t++) {
+        if (!placeItem(true, reach)) break;
+        if (toysAllSafe(computeReachable(hazardWalls()))) break;
+        state.items.pop();                       // this hazard blocks a toy — try again
+      }
+    }
+
+    const safe = computeReachable(hazardWalls());
+    const safeToys = state.items.filter(it => !it.bad && safe.at(it.x, it.y)).length;
+    const score = safeToys * 10 - (wantToys - placed);
+    if (!best || score > best.score) best = { score, furniture: state.furniture.slice(), items: state.items.slice() };
+    if (placed === wantToys && toysAllSafe(safe)) break;
   }
 
-  // Toys are finite — collecting all of them clears the room (that's the max score).
-  const wantToys = Math.min(6 + level * 2, 16);
-  let placed = 0;
-  for (let i = 0; i < wantToys; i++) if (placeItem(false)) placed++;
-  state.toysTotal = placed;
-  state.toysCollected = 0;
+  state.furniture = best.furniture;
+  state.items = best.items;
 
-  // A few starting hazards; more spawn over time.
-  const haz = Math.min(1 + Math.floor(level / 2), 4);
-  for (let i = 0; i < haz; i++) placeItem(true);
+  // Absolute guarantee: peel away any hazard that still traps a toy (furniture-
+  // only reachability is always safe, since toys were placed on it), then drop
+  // any toy that somehow remains unreachable at all.
+  let safe = computeReachable(hazardWalls());
+  while (state.items.some(it => it.bad) && !toysAllSafe(safe)) {
+    const unsafe = state.items.filter(it => !it.bad && !safe.at(it.x, it.y));
+    const hz = state.items.filter(it => it.bad);
+    let victim = hz[0], vd = Infinity;
+    for (const h of hz) for (const tj of unsafe) {
+      const d = Math.hypot(h.x - tj.x, h.y - tj.y);
+      if (d < vd) { vd = d; victim = h; }
+    }
+    state.items.splice(state.items.indexOf(victim), 1);
+    safe = computeReachable(hazardWalls());
+  }
+  const furn = computeReachable();
+  state.reach = furn;
+  state.items = state.items.filter(it => it.bad || furn.at(it.x, it.y));
+
+  state.toysTotal = state.items.filter(it => !it.bad).length;
+  state.toysCollected = 0;
 }
 
-function placeItem(bad) {
+function placeItem(bad, reach, minToyDist) {
+  const M = ITEM_DRAW * 0.5;                 // keep big items fully on the floor
   let x, y, tries = 0, ok = false;
   do {
-    x = 50 + Math.random() * (W - 100);
-    y = 50 + Math.random() * (H - 100);
-    ok = Math.hypot(x - state.baby.x, y - state.baby.y) > 120 &&
-         !inFurniture(x, y, 34) &&
-         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < 44);
+    x = M + Math.random() * (W - 2 * M);
+    y = M + Math.random() * (H - 2 * M);
+    ok = Math.hypot(x - state.baby.x, y - state.baby.y) > 170 &&
+         !inFurniture(x, y, 60) &&
+         !state.items.some(it => Math.hypot(it.x - x, it.y - y) < ITEM_DRAW * 0.8) &&
+         (!reach || reach.at(x, y)) &&
+         (!minToyDist || !state.items.some(it => !it.bad && Math.hypot(it.x - x, it.y - y) < minToyDist));
     tries++;
-  } while (!ok && tries < 80);
+  } while (!ok && tries < 240);
   if (!ok) return false;
-  state.items.push({ x, y, bad, emoji: pick(bad ? HAZARDS : TOYS), born: performance.now(), r: 26 });
+  state.items.push({ x, y, bad, emoji: pick(bad ? HAZARDS : TOYS), born: performance.now(), r: ITEM_DRAW * 0.42 });
   return true;
 }
 
@@ -292,7 +553,7 @@ function pop(x, y, text, color, size) {
 /* ---------- input ---------- */
 const MOVE = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
                w:'up', s:'down', a:'left', d:'right' };
-const STEP = 7; // a tap = one small crawl step
+const STEP = 15;
 addEventListener('keydown', e => {
   const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (MOVE[k] || k === ' ') e.preventDefault();
@@ -304,8 +565,8 @@ addEventListener('keydown', e => {
     if (dir === 'right') { b.x += STEP; b.face = 1; }
     if (dir === 'up')    b.y -= STEP;
     if (dir === 'down')  b.y += STEP;
-    b.x = Math.max(26, Math.min(W - 26, b.x));
-    b.y = Math.max(26, Math.min(H - 26, b.y));
+    b.x = Math.max(BABY_R, Math.min(W - BABY_R, b.x));
+    b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y));
     resolveFurniture(b);
   }
   keys[dir || k] = true;
@@ -319,7 +580,6 @@ function callMom() {
   const m = state.mom;
   if (m.active || m.cooldown > 0) return;
   if (!state.mouth) {
-    // False alarm — Mom is busy folding laundry.
     m.cooldown = MOM_COOLDOWN * 0.7;
     pop(state.baby.x, state.baby.y - 40, 'not now!', '#b08968');
     beep(180, .12, 'triangle');
@@ -327,7 +587,6 @@ function callMom() {
   }
   m.active = true;
   m.phase = 'coming';
-  // Enter from whichever edge is closest to baby.
   const b = state.baby;
   const edges = [ {x:-70, y:b.y}, {x:W+70, y:b.y}, {x:b.x, y:-70}, {x:b.x, y:H+70} ];
   const e = edges.sort((p,q) => Math.hypot(p.x-b.x,p.y-b.y) - Math.hypot(q.x-b.x,q.y-b.y))[0];
@@ -339,12 +598,18 @@ function callMom() {
 function update(dt) {
   const b = state.baby, m = state.mom;
 
-  // Room-cleared celebration: freeze play, then load the next room.
+  // Facial reaction settles back to normal (runs even mid-celebration).
+  b.headScale += (1 - b.headScale) * Math.min(1, 0.006 * dt);
+  if (b.moodT > 0) { b.moodT -= dt; if (b.moodT <= 0) b.mood = 'neutral'; }
+
+  // Room-cleared celebration: freeze play, dance it out, then hand off to the
+  // map screen (the player clicks a button there to crawl to the next room).
   if (state.transition > 0) {
     state.transition -= dt;
     state.pops.forEach(p => p.t += dt);
     state.pops = state.pops.filter(p => p.t < 1500);
-    if (state.transition <= 0) buildLevel(state.level + 1);
+    updateConfetti(dt);
+    if (state.transition <= 0) showMap();
     return;
   }
 
@@ -355,7 +620,7 @@ function update(dt) {
   if (m.cooldown > 0) m.cooldown -= dt;
   if (b.stun > 0) b.stun -= dt;
 
-  // --- baby movement (crawling: slow, with a little lurch each "step") ---
+  // --- baby movement ---
   const canMove = b.stun <= 0 && m.phase !== 'grabbing';
   let ax = 0, ay = 0;
   if (canMove) {
@@ -366,42 +631,47 @@ function update(dt) {
   }
   if (ax || ay) { const len = Math.hypot(ax, ay); ax /= len; ay /= len; }
 
-  // Direct control: baby goes exactly where you point and stops when you let go.
-  // Mouth full of something nasty = baby is distracted and slower.
-  const speed = (state.mouth ? 0.13 : 0.19) * (1 + state.level * 0.015);
+  const speed = (state.mouth ? 0.20 : 0.30) * (1 + state.level * 0.012);
   const targetVx = ax * speed, targetVy = ay * speed;
-  const grip = Math.min(1, 0.022 * dt);    // how fast baby reaches / sheds speed (frame-rate safe)
+  const grip = Math.min(1, 0.022 * dt);
   b.vx += (targetVx - b.vx) * grip;
   b.vy += (targetVy - b.vy) * grip;
   if (!ax && !ay && Math.hypot(b.vx, b.vy) < 0.01) { b.vx = 0; b.vy = 0; }
 
-  b.x = Math.max(26, Math.min(W - 26, b.x + b.vx * dt));
-  b.y = Math.max(26, Math.min(H - 26, b.y + b.vy * dt));
+  b.x = Math.max(BABY_R, Math.min(W - BABY_R, b.x + b.vx * dt));
+  b.y = Math.max(BABY_R, Math.min(H - BABY_R, b.y + b.vy * dt));
   resolveFurniture(b);
 
-  b.wobble += Math.hypot(b.vx, b.vy) * dt * 0.42;
+  // Slow, deliberate limb swing — a real baby crawl, not a sprint. (Tuned so
+  // the legs cycle ~2x/sec at full speed rather than blurring.)
+  b.wobble += Math.hypot(b.vx, b.vy) * dt * 0.04;
   if (ax !== 0) b.face = ax > 0 ? 1 : -1;
 
   // --- item pickup ---
   if (!state.mouth && b.stun <= 0) {
     for (let i = state.items.length - 1; i >= 0; i--) {
       const it = state.items[i];
-      if (Math.hypot(it.x - b.x, it.y - b.y) < 30) {
+      if (Math.hypot(it.x - b.x, it.y - b.y) < PICKUP_R) {
         state.items.splice(i, 1);
         if (it.bad) {
-          state.mouth = { emoji: it.emoji, t: 0, max: Math.max(1700, MOUTH_BASE - state.level * 180) };
+          state.mouth = { emoji: it.emoji, t: 0, max: Math.max(1400, MOUTH_BASE - state.level * 160) };
           state.shake = 8;
-          pop(b.x, b.y - 44, 'uh oh!', '#d94a4a');
+          react('cry', 1000);
+          pop(b.x, b.y - 48, 'uh oh!', '#d94a4a');
           beep(140, .25, 'sawtooth', .05);
         } else {
           state.score += 10;
           state.toysCollected++;
+          react('happy', 650);
           pop(it.x, it.y, '+10', '#3f8f2f');
           beep(660 + Math.random() * 120, .09, 'triangle');
           if (state.toysCollected >= state.toysTotal) {
-            // Whole room tidied — advance after a short cheer.
-            state.transition = 1600;
-            pop(b.x, b.y - 62, 'Room cleared! 🎉', '#ef7d8e', 26);
+            state.dance = pickDance();
+            state.danceFrom = { x: b.x, y: b.y };
+            state.transition = DANCE_MS;
+            react('happy', DANCE_MS);
+            pop(W / 2, 56, 'Room cleared! 🎉', '#ef7d8e', 26);
+            spawnConfetti(W / 2, 30);
             beep(880, .18, 'sine');
             setTimeout(() => beep(1175, .2, 'sine'), 150);
             return;
@@ -416,12 +686,12 @@ function update(dt) {
   if (state.mouth) {
     state.mouth.t += dt;
     if (state.mouth.t >= state.mouth.max && m.phase !== 'grabbing') {
-      // Swallowed. Mom finds out the hard way.
       state.mouth = null;
       state.hearts--;
       state.shake = 22;
       b.stun = 700;
-      pop(b.x, b.y - 44, 'gulp!', '#d94a4a');
+      react('cry', 1200);
+      pop(b.x, b.y - 48, 'gulp!', '#d94a4a');
       beep(90, .4, 'sawtooth', .07);
       m.active = false; m.phase = 'idle';
       if (state.hearts <= 0) return gameOver();
@@ -432,22 +702,18 @@ function update(dt) {
   if (m.active) {
     if (m.phase === 'coming') {
       const dx = b.x - m.x, dy = b.y - 4 - m.y, d = Math.hypot(dx, dy);
-      const ms = 0.62;
-      if (d < 34) {
-        m.phase = 'grabbing';
-        m.grabT = 0;
-      } else {
-        m.x += (dx / d) * ms * dt;
-        m.y += (dy / d) * ms * dt;
-      }
-      if (!state.mouth) { m.phase = 'leaving'; } // baby already swallowed it
+      const ms = 0.68;
+      if (d < 56) { m.phase = 'grabbing'; m.grabT = 0; }
+      else { m.x += (dx / d) * ms * dt; m.y += (dy / d) * ms * dt; }
+      if (!state.mouth) { m.phase = 'leaving'; }
     } else if (m.phase === 'grabbing') {
       m.grabT += dt;
-      m.x = b.x - 30 * (b.face || 1);
+      m.x = b.x - 55 * (b.face || 1);
       m.y = b.y - 6;
       if (m.grabT > 380) {
         if (state.mouth) {
-          pop(b.x, b.y - 50, 'saved! +5', '#3f8f2f');
+          react('happy', 700);
+          pop(b.x, b.y - 54, 'saved! +5', '#3f8f2f');
           state.score += 5;
           state.mouth = null;
           beep(720, .12, 'sine');
@@ -470,8 +736,14 @@ function update(dt) {
   state.spawnTimer -= dt;
   if (state.spawnTimer <= 0) {
     const hazards = state.items.filter(it => it.bad).length;
-    if (hazards < 2 + state.level) placeItem(true);
-    state.spawnTimer = Math.max(1400, 3000 - state.level * 120);
+    if (hazards < 1 + Math.floor(state.level / 2)) {
+      // Only keep the new hazard if it doesn't wall off a still-uncollected toy.
+      if (placeItem(true, state.reach) &&
+          !toysAllSafe(computeReachable(hazardWalls()))) {
+        state.items.pop();
+      }
+    }
+    state.spawnTimer = Math.max(1800, 3400 - state.level * 120);
   }
 
   if (state.shake > 0) state.shake *= 0.88;
@@ -492,24 +764,79 @@ function timeUp() {
 function gameOver() {
   running = false;
   document.getElementById('endTitle').textContent =
-    state.score > 120 ? 'What an explorer! 🏆' : 'Nap time 😴';
+    state.score > 160 ? 'What an explorer! 🏆' : 'Nap time 😴';
   document.getElementById('endMsg').innerHTML =
     `Baby collected <b>${state.score}</b> points across <b>${state.level}</b> room${state.level > 1 ? 's' : ''}.<br>` +
     `Mom needs a coffee. ☕`;
   document.getElementById('endScreen').classList.remove('hidden');
 }
 
+/* ---------- the journey map (shown between rooms) ---------- */
+// Stops snake left-to-right then back, like a board-game trail.
+const MAP_POS = [
+  [12,13],[31,13],[50,13],[69,13],[88,13],
+  [88,35],[69,35],[50,35],[31,35],[12,35],
+];
+function buildMapSVG(cleared) {
+  const n = ROOMS.length;
+  const cur  = Math.min(cleared, n) - 1;        // stop the baby just reached
+  const next = Math.min(cleared, n - 1);        // stop to crawl to next
+  let trail = '';
+  for (let i = 0; i < n - 1; i++) {
+    const [x1,y1] = MAP_POS[i], [x2,y2] = MAP_POS[i+1];
+    const done = i < cur;
+    trail += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${done ? '#a97e55' : '#d3bea3'}" ` +
+             `stroke-width="${done ? 1.4 : 1}" stroke-linecap="round" ${done ? '' : 'stroke-dasharray="2 2.6"'} />`;
+  }
+  let nodes = '';
+  for (let i = 0; i < n; i++) {
+    const [x,y] = MAP_POS[i], r = ROOMS[i];
+    let fill = '#efe3d4', ring = '#c9b49b';
+    if (i < cur)       { fill = '#cdeab3'; ring = '#7ac74f'; }   // already crawled
+    else if (i === cur){ fill = '#ffd8de'; ring = '#ef7d8e'; }   // baby is here
+    else if (i === next){ fill = '#fff2cc'; ring = '#f0c14b'; }  // next destination
+    nodes += `<circle cx="${x}" cy="${y}" r="6.4" fill="${fill}" stroke="${ring}" stroke-width="1.2"/>`;
+    nodes += `<text x="${x}" y="${y+2.3}" text-anchor="middle" font-size="6.2">${r.icon}</text>`;
+    if (i === cur) nodes += `<text x="${x}" y="${y-8.4}" text-anchor="middle" font-size="6">👶</text>`;
+    nodes += `<text x="${x}" y="${y+11.6}" text-anchor="middle" font-size="3.1" font-weight="bold" fill="#5a4636">${r.short}</text>`;
+  }
+  return `<svg viewBox="0 0 100 48" xmlns="http://www.w3.org/2000/svg" ` +
+         `style="width:100%;max-width:660px;height:auto">${trail}${nodes}</svg>`;
+}
+
+function showMap() {
+  running = false;
+  const cleared = state.level, n = ROOMS.length;
+  const next = Math.min(cleared, n - 1);
+  const done = cleared >= n;
+  document.getElementById('mapTitle').textContent = `Room ${cleared} cleared! 🎉`;
+  document.getElementById('mapArt').innerHTML = buildMapSVG(cleared);
+  document.getElementById('mapNote').textContent =
+    done ? 'The whole house, crawled end to end. Around again?' : ROOMS[next].note;
+  document.getElementById('nextBtn').textContent =
+    done ? 'One more night →' : `Crawl to the ${ROOMS[next].name} ${ROOMS[next].icon} →`;
+  document.getElementById('mapScreen').classList.remove('hidden');
+  beep(660, .12, 'sine');
+}
+
+function advanceRoom() {
+  const map = document.getElementById('mapScreen');
+  if (map.classList.contains('hidden')) return;   // ignore stray double-taps
+  map.classList.add('hidden');
+  buildLevel(state.level + 1);
+  running = true;
+  last = performance.now();
+}
+
 /* ---------- drawing ---------- */
 function drawFloor() {
   ctx.fillStyle = '#e8d3ba';
   ctx.fillRect(0, 0, W, H);
-  // floorboards
   ctx.strokeStyle = 'rgba(140,105,75,.18)';
   ctx.lineWidth = 2;
   for (let y = 40; y < H; y += 40) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   }
-  // rug
   ctx.save();
   ctx.translate(W / 2, H / 2);
   const rw = W * 0.72, rh = H * 0.72;
@@ -534,9 +861,9 @@ function roundRect(x, y, w, h, r) {
 function drawFurniture() {
   for (const f of state.furniture) {
     ctx.save();
-    ctx.fillStyle = 'rgba(90,60,40,.18)';        // drop shadow
+    ctx.fillStyle = 'rgba(90,60,40,.18)';
     roundRect(f.x + 4, f.y + 9, f.w, f.h, 16); ctx.fill();
-    ctx.fillStyle = '#dcb78f';                   // wooden body
+    ctx.fillStyle = '#dcb78f';
     roundRect(f.x, f.y, f.w, f.h, 16); ctx.fill();
     ctx.strokeStyle = '#a97e55'; ctx.lineWidth = 3;
     roundRect(f.x, f.y, f.w, f.h, 16); ctx.stroke();
@@ -566,6 +893,256 @@ function shadow(x, y, rx) {
   ctx.restore();
 }
 
+/* A whole hand-drawn baby on all fours. Faces +x locally; flipped by b.face.
+   Crawls (limbs swing) and its head puffs + smiles/cries with `mood`. */
+function drawBaby(b, now) {
+  const SKIN = '#f7c69f', SKIN_D = '#e4a97c';
+  const SUIT = '#8fd0e6', SUIT_D = '#5fa9c6';
+  const HAIR = '#7a5638';
+
+  const moving = Math.hypot(b.vx, b.vy) > 0.02 ||
+                 keys.up || keys.down || keys.left || keys.right;
+
+  ctx.save();
+  ctx.translate(b.x, b.y + 4);
+  ctx.scale(b.face * BABY_SCALE, BABY_SCALE);
+  const ph = b.wobble;
+  const bob = Math.abs(Math.sin(ph)) * (moving ? 3 : 1.2);
+  ctx.translate(0, -bob);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const sw = moving ? Math.sin(ph) : 0;   // crawl swing
+
+  // helper: draw a limb, return the [x,y] of its tip
+  function limb(hx, hy, len, ang, w, col) {
+    const ex = hx + Math.cos(ang) * len, ey = hy + Math.sin(ang) * len;
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ex, ey); ctx.stroke();
+    return [ex, ey];
+  }
+  function nub(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // --- far-side limbs (drawn first, slightly darker) ---
+  let p;
+  p = limb(-14, 2, 21, Math.PI/2 - 0.35 - sw*0.55, 10, SUIT_D);  // far leg
+  nub(p[0], p[1], 5.5, SKIN_D);
+  p = limb(12, -1, 20, Math.PI/2 + 0.30 + sw*0.55, 8, SKIN_D);   // far arm
+  nub(p[0], p[1], 5, SKIN_D);
+
+  // --- diaper bump + onesie torso ---
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.ellipse(-17, 3, 9, 11, -0.1, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = SUIT;
+  ctx.beginPath(); ctx.ellipse(-2, 1, 23, 15, -0.14, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = SUIT_D; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(-2, 1, 23, 15, -0.14, 0, Math.PI*2); ctx.stroke();
+  // a couple of onesie buttons
+  nub(-2, -2, 1.6, '#fff'); nub(4, 3, 1.6, '#fff');
+
+  // --- near-side limbs (brighter, on top of torso) ---
+  p = limb(-12, 5, 22, Math.PI/2 - 0.35 + sw*0.55, 12, SUIT);    // near leg
+  nub(p[0], p[1], 6.5, SKIN);
+  p = limb(15, 1, 21, Math.PI/2 + 0.30 - sw*0.55, 9, SKIN);      // near arm
+  nub(p[0], p[1], 5.5, SKIN);
+
+  // --- head ---
+  const hs = b.headScale;
+  const hx = 25, hy = -9 - (hs - 1) * 6;   // rise a touch as it puffs
+  // neck
+  ctx.strokeStyle = SKIN; ctx.lineWidth = 11;
+  ctx.beginPath(); ctx.moveTo(13, -2); ctx.lineTo(hx - 5, hy + 7); ctx.stroke();
+  // ear
+  nub(hx - 10, hy + 2, 3.4 * hs, SKIN_D);
+  // head
+  ctx.fillStyle = SKIN;
+  ctx.beginPath(); ctx.arc(hx, hy, 13 * hs, 0, Math.PI * 2); ctx.fill();
+  // hair curl
+  ctx.strokeStyle = HAIR; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(hx - 3, hy - 12 * hs, 4, Math.PI * 0.9, Math.PI * 2.1);
+  ctx.stroke();
+
+  drawFace(hx, hy, hs, b.mood, now);
+
+  ctx.restore();
+}
+
+function drawFace(hx, hy, hs, mood, now) {
+  const ex = hx + 5 * hs, ey = hy - 2 * hs;   // front eye
+  const bx = hx - 1 * hs;                       // back (far) eye, partly turned away
+
+  if (mood === 'happy') {
+    // ^ ^ happy eyes
+    ctx.strokeStyle = '#3a2a1d'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (const cx of [bx, ex]) {
+      ctx.beginPath();
+      ctx.arc(cx, ey + 2, 2.6 * hs, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+    }
+    // rosy cheek
+    ctx.fillStyle = 'rgba(239,125,142,.5)';
+    ctx.beginPath(); ctx.arc(hx + 6 * hs, hy + 4 * hs, 3 * hs, 0, Math.PI * 2); ctx.fill();
+    // big open smile
+    ctx.fillStyle = '#a83a3a';
+    ctx.beginPath();
+    ctx.arc(hx + 2 * hs, hy + 3 * hs, 5 * hs, 0.12 * Math.PI, 0.88 * Math.PI);
+    ctx.fill();
+  } else if (mood === 'cry') {
+    // >_< squeezed eyes
+    ctx.strokeStyle = '#3a2a1d'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (const cx of [bx, ex]) {
+      ctx.beginPath();
+      ctx.arc(cx, ey - 2, 2.6 * hs, Math.PI * 0.15, Math.PI * 0.85);
+      ctx.stroke();
+    }
+    // wailing mouth
+    ctx.fillStyle = '#8f2f2f';
+    ctx.beginPath(); ctx.ellipse(hx + 3 * hs, hy + 5 * hs, 3.2 * hs, 4 * hs, 0, 0, Math.PI * 2); ctx.fill();
+    // tears streaming (animate a little)
+    const t = (now % 700) / 700;
+    ctx.fillStyle = 'rgba(120,190,235,.85)';
+    for (const cx of [bx, ex]) {
+      const ty = ey + 3 + t * 12;
+      ctx.beginPath(); ctx.ellipse(cx, ty, 1.8, 3, 0, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    // calm dot eyes + tiny smile
+    nub(bx, ey, 1.8 * hs, '#3a2a1d');
+    nub(ex, ey, 1.8 * hs, '#3a2a1d');
+    ctx.strokeStyle = '#8f5a45'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(hx + 2 * hs, hy + 2 * hs, 3.5 * hs, 0.2 * Math.PI, 0.8 * Math.PI);
+    ctx.stroke();
+  }
+  function nub(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* ---------- victory dance: a big baby facing the player ----------
+   Room-cleared swaps the small side-on crawler for this standing,
+   front-facing baby that zooms up to screen centre and fills roughly
+   half the stage while it dances, in front of the (still visible)
+   room. Reuses each DANCES pose()'s knobs but reinterprets them for a
+   symmetric standing figure instead of a crawling one. */
+const easeOutCubic = x => 1 - Math.pow(1 - x, 3);
+const CELEBRATE_UNIT_H = 110;   // approx head-to-feet height in local units at scale 1
+
+function celebrationTransform(danceT, from) {
+  const e = easeOutCubic(Math.min(1, danceT / CELEBRATE_GROW_MS));
+  const cx = from.x + (W / 2 - from.x) * e;
+  const cy = from.y + (H / 2 - from.y) * e;
+  const smallScale = 0.5, bigScale = (H * 0.5) / CELEBRATE_UNIT_H;
+  const scale = smallScale + (bigScale - smallScale) * e;
+  return { cx, cy, scale };
+}
+
+function drawBabyFront(cx, cy, scale, now, danceT, dance) {
+  const SKIN = '#f7c69f', SKIN_D = '#e4a97c';
+  const SUIT = '#8fd0e6', SUIT_D = '#5fa9c6';
+  const HAIR = '#7a5638';
+  const pose = dance.pose(danceT);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(pose.rot || 0);
+  ctx.scale(scale * (pose.scaleX || 1), scale);
+  ctx.translate(0, -(pose.bounce || 0));
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  function limb(hx, hy, len, ang, w, col) {
+    const ex = hx + Math.cos(ang) * len, ey = hy + Math.sin(ang) * len;
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ex, ey); ctx.stroke();
+    return [ex, ey];
+  }
+  function limbTo(hx, hy, tx, ty, w, col) {
+    ctx.strokeStyle = col; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+    return [tx, ty];
+  }
+  function nub(x, y, r, col) {
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  // Hand position for one arm: rest (hanging out at the side) blends toward
+  // either straight overhead (lift > 0) or trailing down-and-back (lift < 0).
+  // Lerping the hand's (x,y) directly — rather than an angle — sidesteps any
+  // sign confusion about which way "up" rotates for the left vs. right arm.
+  function armHand(side, lift) {
+    const restX = side * 40, restY = 16;
+    if (lift >= 0) {
+      const upX = side * 26, upY = -64;   // clear of the head (centred at y=-36, r=20)
+      return [restX + (upX - restX) * lift, restY + (upY - restY) * lift];
+    }
+    const backX = side * 20, backY = 34, k = -lift;
+    return [restX + (backX - restX) * k, restY + (backY - restY) * k];
+  }
+
+  const kick = pose.sw || 0;
+  const liftAmt = Math.max(-1, Math.min(1, pose.armUp || 0));
+
+  // --- legs (symmetric, kicking apart/together with the beat) ---
+  let p;
+  p = limb(-11, 20, 30, Math.PI/2 + 0.22 + kick * 0.4, 11, SUIT_D);  // left leg
+  nub(p[0], p[1], 6, SKIN_D);
+  p = limb(11, 20, 30, Math.PI/2 - 0.22 - kick * 0.4, 11, SUIT);     // right leg
+  nub(p[0], p[1], 6, SKIN);
+
+  // --- torso ---
+  ctx.fillStyle = SUIT;
+  roundRect(-22, -12, 44, 40, 18); ctx.fill();
+  ctx.strokeStyle = SUIT_D; ctx.lineWidth = 2;
+  roundRect(-22, -12, 44, 40, 18); ctx.stroke();
+  nub(-7, 2, 2, '#fff'); nub(7, 9, 2, '#fff');
+
+  // --- arms (raise toward overhead as liftAmt approaches 1) ---
+  let hand = armHand(-1, liftAmt);
+  p = limbTo(-20, -6, hand[0], hand[1], 9, SKIN_D);  // left arm
+  nub(p[0], p[1], 5.5, SKIN_D);
+  hand = armHand(1, liftAmt);
+  p = limbTo(20, -6, hand[0], hand[1], 9, SKIN);     // right arm
+  nub(p[0], p[1], 5.5, SKIN);
+
+  // --- head, facing straight out at the player ---
+  const hx = 0, hy = -36;
+  ctx.strokeStyle = SKIN; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(hx, hy + 15); ctx.stroke();
+  nub(hx - 17, hy + 3, 4, SKIN_D); nub(hx + 17, hy + 3, 4, SKIN_D);  // ears
+  ctx.fillStyle = SKIN;
+  ctx.beginPath(); ctx.arc(hx, hy, 20, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = HAIR; ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(hx, hy - 19, 5, Math.PI * 0.9, Math.PI * 2.3);
+  ctx.stroke();
+
+  drawFrontFace(hx, hy);
+
+  ctx.restore();
+}
+
+function drawFrontFace(hx, hy) {
+  ctx.strokeStyle = '#3a2a1d'; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+  for (const dx of [-7, 7]) {
+    ctx.beginPath();
+    ctx.arc(hx + dx, hy - 2, 3, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(239,125,142,.5)';
+  ctx.beginPath(); ctx.arc(hx - 12, hy + 7, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + 12, hy + 7, 3.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#a83a3a';
+  ctx.beginPath();
+  ctx.arc(hx, hy + 7, 6.4, 0.08 * Math.PI, 0.92 * Math.PI);
+  ctx.fill();
+}
+
 function draw(now) {
   ctx.save();
   if (state.shake > 0.4) ctx.translate((Math.random()-.5)*state.shake, (Math.random()-.5)*state.shake);
@@ -573,57 +1150,54 @@ function draw(now) {
   drawFloor();
   drawFurniture();
 
-  // items
+  // Toys and hazards look the same on the floor — no warning ring. The player
+  // has to recognise which emoji is a toy and which is trouble.
   for (const it of state.items) {
-    const bob = Math.sin((now - it.born) / 380) * 3;
-    if (it.bad) {
-      // subtle warning glow so hazards read at a glance
-      ctx.save();
-      ctx.fillStyle = 'rgba(217,74,74,.12)';
-      ctx.beginPath(); ctx.arc(it.x, it.y + bob, 24, 0, Math.PI*2); ctx.fill();
-      ctx.restore();
-    }
-    shadow(it.x, it.y + 18, 13);
-    emoji(it.emoji, it.x, it.y + bob, 34);
+    const bob = Math.sin((now - it.born) / 380) * 5;
+    shadow(it.x, it.y + ITEM_DRAW * 0.30, ITEM_DRAW * 0.30);
+    emoji(it.emoji, it.x, it.y + bob, ITEM_DRAW);
   }
 
-  // baby
   const b = state.baby;
-  shadow(b.x, b.y + 20, 22);
-  const lurch = Math.sin(b.wobble) * 0.16;
-  emoji('👶', b.x, b.y + Math.abs(Math.sin(b.wobble)) * -3, 54, lurch, b.face);
+  if (state.transition > 0 && state.dance) {
+    const danceT = DANCE_MS - state.transition;
+    const { cx, cy, scale } = celebrationTransform(danceT, state.danceFrom);
+    shadow(cx, cy + scale * 56, scale * 30);
+    drawBabyFront(cx, cy, scale, now, danceT, state.dance);
+  } else {
+    shadow(b.x, b.y + 52, 52);
+    drawBaby(b, now);
+  }
+  drawConfetti();
 
-  // whatever is in the mouth + its timer ring
   if (state.mouth) {
     const p = 1 - state.mouth.t / state.mouth.max;
-    emoji(state.mouth.emoji, b.x + 16 * b.face, b.y + 12, 22);
+    emoji(state.mouth.emoji, b.x + 44 * b.face, b.y - 30, 46);
     ctx.save();
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 8;
     ctx.strokeStyle = 'rgba(255,255,255,.65)';
-    ctx.beginPath(); ctx.arc(b.x, b.y - 4, 40, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.x, b.y - 4, 70, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = p > .4 ? '#f0a04b' : '#d94a4a';
     ctx.beginPath();
-    ctx.arc(b.x, b.y - 4, 40, -Math.PI/2, -Math.PI/2 + p * Math.PI * 2);
+    ctx.arc(b.x, b.y - 4, 70, -Math.PI/2, -Math.PI/2 + p * Math.PI * 2);
     ctx.stroke();
     ctx.restore();
     if (!state.mom.active && state.mom.cooldown <= 0 && Math.sin(now / 140) > 0) {
       ctx.fillStyle = '#4a3728';
-      ctx.font = 'bold 15px "Trebuchet MS", sans-serif';
+      ctx.font = 'bold 16px "Trebuchet MS", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('SPACE — call Mom!', b.x, b.y - 56);
+      ctx.fillText('SPACE — call Mom!', b.x, b.y - 92);
     }
   }
 
-  // mom
   const m = state.mom;
   if (m.active) {
-    shadow(m.x, m.y + 34, 26);
+    shadow(m.x, m.y + 48, 34);
     const bounce = m.phase === 'coming' ? Math.abs(Math.sin(now / 90)) * -6 : 0;
-    emoji('👩', m.x, m.y + bounce, 68, 0, m.x > b.x ? -1 : 1);
-    if (m.phase === 'grabbing') emoji('✋', m.x + 22 * (b.face || 1), m.y + 4, 26);
+    emoji('👩', m.x, m.y + bounce, 100, 0, m.x > b.x ? -1 : 1);
+    if (m.phase === 'grabbing') emoji('✋', m.x + 40 * (b.face || 1), m.y + 4, 40);
   }
 
-  // floating text
   for (const p of state.pops) {
     const a = 1 - p.t / (p.size > 22 ? 1500 : 900);
     ctx.save();
@@ -638,13 +1212,13 @@ function draw(now) {
     ctx.restore();
   }
 
-  // room-cleared banner
-  if (state.transition > 0) {
+  if (state.transition > 0 && state.dance) {
+    // The dancing baby fills the middle of the stage, so its caption sits low.
     ctx.save();
     ctx.textAlign = 'center';
     ctx.fillStyle = '#4a3728';
-    ctx.font = 'bold 20px "Trebuchet MS", sans-serif';
-    ctx.fillText('Get ready for room ' + (state.level + 1) + '…', W/2, H/2 + 40);
+    ctx.font = 'bold 22px "Trebuchet MS", sans-serif';
+    ctx.fillText('💃 ' + state.dance.name + '! 💃', W/2, H - 26);
     ctx.restore();
   }
 
@@ -679,10 +1253,28 @@ function start() {
   last = performance.now();
   document.getElementById('startScreen').classList.add('hidden');
   document.getElementById('endScreen').classList.add('hidden');
+  document.getElementById('mapScreen').classList.add('hidden');
 }
 
-document.getElementById('startBtn').onclick = start;
-document.getElementById('againBtn').onclick = start;
+/* Fire on the first pointer release, not just `click`. Some mobile webviews
+   and embeds swallow the first synthesized click (to focus, or as a ghost
+   tap), so a plain onclick handler seems to need two taps. `pointerup` fires
+   on that first interaction; a short dedupe ignores the click that follows it,
+   and `click` stays wired as the keyboard/fallback path. */
+function onTap(el, fn) {
+  let last = -1e9;
+  const run = e => {
+    const t = e.timeStamp || performance.now();
+    if (t - last < 600) return;   // ignore the paired click right after pointerup
+    last = t;
+    fn();
+  };
+  el.addEventListener('pointerup', run);
+  el.addEventListener('click', run);
+}
+onTap(document.getElementById('startBtn'), start);
+onTap(document.getElementById('againBtn'), start);
+onTap(document.getElementById('nextBtn'), advanceRoom);
 reset();
 requestAnimationFrame(frame);
 </script>

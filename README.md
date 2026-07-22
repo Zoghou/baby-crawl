@@ -1,16 +1,8 @@
-# 👶 Baby's First Crawl
+# 👶 Baby Crawl
 
-A small browser game: baby crawls around the house hunting for toys, navigating furniture and avoiding the things that shouldn't go in their mouth. Three self-contained variants, no build step — open an `.html` file in a browser and play.
+A small browser game: baby crawls around the house hunting for toys, navigating furniture and avoiding the things that shouldn't go in their mouth. Self-contained, no build step — open `baby-crawl.html` in a browser and play.
 
 **▶ Play: <https://zoghou.github.io/baby-crawl/>**
-
-## The variants
-
-| File | What it is |
-|---|---|
-| `baby-crawl.html` | The original 2D game. 60 seconds per room, gentler obstacle and hazard counts. |
-| `baby-crawl-hard.html` | Hard mode. 50 seconds per room, more furniture, more toys to find, more hazards. |
-| `baby-crawl-3d.html` | 3D version rendered with three.js. 50 seconds per room, toys unlock progressively as you advance. |
 
 ## Controls
 
@@ -19,28 +11,30 @@ A small browser game: baby crawls around the house hunting for toys, navigating 
 
 ### On a phone
 
-All three variants take touch input. An on-screen joystick (8-way, so diagonals work) sits bottom-left and a **MOM** button bottom-right.
+The game takes touch input. An on-screen joystick (8-way, so diagonals work) sits bottom-left and a **MOM** button bottom-right.
 
 They appear automatically on any device reporting a coarse pointer, and the toggle on the landing page overrides that either way — useful for testing touch controls on a desktop, or turning them off on a tablet with a keyboard. The choice is remembered in `localStorage`. You can also force it per-page with `?touch=1` or `?touch=0`.
 
-`touch-controls.js` works by synthesizing the same `keydown`/`keyup` events the games already listen for, so the game code itself has no knowledge of touch and needed no changes.
+`touch-controls.js` works by synthesizing the same `keydown`/`keyup` events the game already listens for, so the game code itself has no knowledge of touch and needed no changes.
 
 ## Playing
 
-Each room has a finite number of toys; collecting all of them clears the room and is the maximum score for it. You have three hearts and a per-room timer. Rooms get busier as you go — more furniture to crawl around and more hazards to keep out of baby's mouth.
+Each room has a finite number of toys — 3 in the first room, one more each room after, up to 10 — and collecting all of them clears the room. Toys and hazards look alike on the floor, so you have to tell them apart yourself. You have three hearts and a 50-second timer per room. Rooms get busier as you go, with more and bigger furniture to crawl around, and every layout is checked so that every toy is reachable without being forced through a hazard.
+
+Clear a room and baby breaks into a randomized victory dance, then a map shows the journey across the house before you crawl on to the next room.
 
 ## Running
 
-No server or install needed for the 2D versions — double-click the file.
-
-`baby-crawl-3d.html` loads `three.min.js` from the same directory, which is vendored in this repo. Some browsers restrict local file loading, so if the 3D version shows a blank screen, serve the directory over HTTP instead:
+No server or install needed — double-click `baby-crawl.html`, or serve the directory over HTTP:
 
 ```
 python3 -m http.server 8000
 ```
 
-Then open <http://localhost:8000/baby-crawl-3d.html>.
+Then open <http://localhost:8000/>.
 
 ## Contents
 
-- `three.min.js` — vendored [three.js](https://threejs.org/) build, required by the 3D version.
+- `index.html` — landing page with the on-screen-controls toggle.
+- `baby-crawl.html` — the game.
+- `touch-controls.js` — optional on-screen joystick + Mom button for touch devices.
