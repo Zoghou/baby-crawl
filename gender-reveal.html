@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>The Bump Oracle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gloock&family=Figtree:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one centred "oracle" column over a lavender wash; a needle gauge
+     (blue ↔ pink, lavender in the middle) rides at the top of every question.
+     Single deliberate light look: lavender is literally pink + blue. */
+  :root {
+    color-scheme: light;
+    --wash: #ece6f4;        /* page ground: lavender */
+    --paper: #fbf9fd;       /* card surface */
+    --ink: #2a1e3b;         /* aubergine text */
+    --muted: #6d6182;       /* secondary text, lavender-biased grey */
+    --line: #ddd3ea;        /* hairlines */
+    --gold: #e3a23b;        /* oracle gold: sparkles, focus */
+    --boy: #6fa7e0;
+    --girl: #ee8fb8;
+    --boy-deep: #2f6fae;
+    --girl-deep: #c2427a;
+    --reveal: var(--gold);
+    --reveal-deep: var(--ink);
+
+    --f-display: "Gloock", "Iowan Old Style", Georgia, serif;
+    --f-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --f-mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    --step--1: .82rem;
+    --step-0: 1rem;
+    --step-1: 1.2rem;
+    --step-2: 1.6rem;
+    --step-3: clamp(2rem, 7vw, 2.7rem);
+    --step-4: clamp(3.2rem, 15vw, 5.6rem);
+  }
+  :root[data-baby="girl"] { --reveal: var(--girl); --reveal-deep: var(--girl-deep); --wash: #f8e4ee; }
+  :root[data-baby="boy"]  { --reveal: var(--boy);  --reveal-deep: var(--boy-deep);  --wash: #e2edf8; }
+
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom));
+    background: var(--wash);
+    color: var(--ink);
+    font: 400 var(--step-0)/1.55 var(--f-body);
+    transition: background-color 1.2s ease;
+    overflow-x: hidden;
+  }
+  /* Two soft clouds: blue drifting in from one side, pink from the other. */
+  body::before, body::after {
+    content: ""; position: fixed; z-index: -1; pointer-events: none;
+    width: 70vmax; height: 70vmax; border-radius: 50%;
+    filter: blur(60px); opacity: .55;
+    animation: drift 18s ease-in-out infinite alternate;
+  }
+  body::before { background: radial-gradient(circle, var(--boy) 0%, transparent 65%); left: -35vmax; top: -25vmax; }
+  body::after  { background: radial-gradient(circle, var(--girl) 0%, transparent 65%); right: -35vmax; bottom: -25vmax; animation-delay: -9s; }
+  @keyframes drift { to { transform: translate(6vmax, 4vmax) scale(1.08); } }
+
+  main { max-width: 560px; margin: 0 auto; position: relative; }
+
+  .masthead {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-bottom: 18px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--f-display); font-size: var(--step-1); letter-spacing: .01em; }
+  .brand svg { width: 30px; height: 30px; flex: none; }
+  .icon-btn {
+    border: 1px solid var(--line); background: var(--paper); color: var(--muted);
+    border-radius: 99px; padding: 6px 12px; font: 500 var(--step--1) var(--f-body); cursor: pointer;
+  }
+
+  .card {
+    background: var(--paper);
+    border-radius: 28px;
+    padding: clamp(22px, 5vw, 36px);
+    box-shadow: 0 1px 0 rgba(255,255,255,.8) inset, 0 30px 60px -30px rgba(42,30,59,.35), 0 8px 20px -12px rgba(42,30,59,.2);
+    position: relative;
+  }
+  .screen { animation: rise .55s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+
+  .eyebrow {
+    font: 500 var(--step--1)/1.2 var(--f-mono); text-transform: uppercase; letter-spacing: .12em;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  h1, h2 { font-family: var(--f-display); font-weight: 400; line-height: 1.08; margin: 0 0 14px; text-wrap: balance; letter-spacing: -.01em; }
+  h1 { font-size: var(--step-3); }
+  h2 { font-size: var(--step-2); }
+  p { margin: 0 0 14px; max-width: 62ch; }
+  .muted { color: var(--muted); }
+  em.gold { font-style: normal; color: var(--gold); }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+    border: 0; border-radius: 99px; cursor: pointer;
+    padding: 15px 26px; min-height: 52px;
+    font: 600 var(--step-0)/1 var(--f-body);
+    background: var(--ink); color: var(--paper);
+    box-shadow: 0 10px 22px -10px rgba(42,30,59,.6);
+    transition: transform .15s, box-shadow .15s, opacity .2s;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 14px 26px -10px rgba(42,30,59,.6); }
+  .btn:active { transform: translateY(0) scale(.98); }
+  .btn[disabled] { opacity: .35; pointer-events: none; }
+  .btn.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .btn.wide { width: 100%; }
+  :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+
+  /* ---------- gauge ---------- */
+  .gauge-wrap { margin: -6px 0 18px; }
+  .gauge { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; overflow: visible; }
+  .gauge .needle { transform-origin: 160px 150px; transition: transform 1.1s cubic-bezier(.34,1.56,.64,1); }
+  .gauge .needle.wild { transition: transform .38s cubic-bezier(.45,0,.55,1); }
+  .gauge text { font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em; fill: var(--muted); }
+  .readout {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    max-width: 360px; margin: 6px auto 0;
+    font: 500 var(--step--1) var(--f-mono); color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .readout b { font-weight: 500; color: var(--ink); }
+  .progress { display: flex; gap: 5px; margin: 0 0 22px; }
+  .progress i { flex: 1; height: 4px; border-radius: 4px; background: var(--line); transition: background .4s; }
+  .progress i.done { background: linear-gradient(90deg, var(--boy), var(--girl)); }
+
+  /* ---------- options ---------- */
+  .options { display: grid; gap: 10px; margin-top: 8px; }
+  @media (min-width: 520px) { .options.two { grid-template-columns: 1fr 1fr; } }
+  .opt {
+    display: flex; align-items: center; gap: 14px; text-align: left;
+    width: 100%; padding: 14px 16px; border-radius: 18px; cursor: pointer;
+    border: 1.5px solid var(--line); background: var(--paper); color: var(--ink);
+    font: 500 var(--step-0)/1.3 var(--f-body);
+    transition: border-color .15s, transform .15s, background .2s;
+  }
+  .opt:hover { border-color: var(--muted); transform: translateY(-1px); }
+  .opt .glyph {
+    flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--wash); font-size: 1.25rem;
+  }
+  .opt span:last-child { min-width: 0; }
+  .opt.picked { border-color: var(--ink); background: #f4effa; }
+  .options.locked .opt:not(.picked) { opacity: .4; pointer-events: none; }
+  .options.locked .opt.picked { pointer-events: none; }
+
+  .finding {
+    margin-top: 18px; padding: 16px 18px; border-radius: 18px;
+    background: var(--wash); display: grid; gap: 4px;
+    animation: rise .45s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .finding .tag { font: 500 var(--step--1) var(--f-mono); letter-spacing: .1em; text-transform: uppercase; }
+  .finding .tag.boy { color: var(--boy-deep); }
+  .finding .tag.girl { color: var(--girl-deep); }
+  .finding .tag.none { color: var(--muted); }
+  .finding p { margin: 0; }
+
+  .correction {
+    margin-top: 12px; padding: 14px 16px; border-radius: 16px;
+    border: 1.5px dashed var(--gold); background: #fff8ec;
+    font-size: var(--step--1); animation: rise .45s .5s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .correction strong { font-family: var(--f-mono); font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: #9a6411; display: block; margin-bottom: 2px; }
+
+  /* ---------- slider ---------- */
+  .slider-box { margin: 18px 0 6px; }
+  .big-num { font: 400 var(--step-4)/1 var(--f-display); text-align: center; font-variant-numeric: tabular-nums; }
+  .big-num small { display: block; font: 500 var(--step--1) var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+  input[type=range] { width: 100%; margin: 18px 0 4px; accent-color: var(--ink); height: 28px; }
+  .ticks { display: flex; justify-content: space-between; font: 400 var(--step--1) var(--f-mono); color: var(--muted); }
+
+  /* ---------- ring test ---------- */
+  .ring-stage { position: relative; height: 240px; margin: 8px 0 4px; display: grid; place-items: start center; }
+  .pendulum { transform-origin: 50% 0; width: 60px; height: 200px; position: relative; }
+  .pendulum .string { position: absolute; left: 50%; top: 0; width: 1.5px; height: 160px; background: var(--muted); transform: translateX(-50%); }
+  .pendulum .ring {
+    position: absolute; left: 50%; top: 152px; width: 38px; height: 38px; margin-left: -19px;
+    border-radius: 50%; border: 6px solid var(--gold);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.5), 0 6px 10px -4px rgba(42,30,59,.35);
+  }
+  .bump {
+    position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 180px; height: 46px; border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+    background: linear-gradient(90deg, var(--boy), #c7b5e6, var(--girl)); opacity: .5;
+  }
+  .pendulum.line   { animation: swing-line 1.1s ease-in-out infinite alternate; }
+  .pendulum.circle { animation: swing-circle 1.3s linear infinite; }
+  @keyframes swing-line { from { transform: rotate(22deg); } to { transform: rotate(-22deg); } }
+  @keyframes swing-circle {
+    0%   { transform: rotate(18deg) scale(1); }
+    25%  { transform: rotate(0deg) scale(1.12); }
+    50%  { transform: rotate(-18deg) scale(1); }
+    75%  { transform: rotate(0deg) scale(.88); }
+    100% { transform: rotate(18deg) scale(1); }
+  }
+  .ring-status { text-align: center; font: 500 var(--step--1) var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); min-height: 1.4em; }
+
+  /* ---------- computing ---------- */
+  .log { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 8px; font: 400 var(--step--1)/1.4 var(--f-mono); color: var(--muted); }
+  .log li { display: flex; gap: 10px; animation: rise .35s both; }
+  .log li::before { content: "◦"; color: var(--gold); }
+  .log li.ok::before { content: "✓"; }
+
+  /* ---------- scratch card ---------- */
+  .scratch {
+    position: relative; width: min(100%, 340px); aspect-ratio: 1; max-width: 100%;
+    margin: 18px auto 8px; border-radius: 50%;
+    background: var(--paper);
+    box-shadow: 0 0 0 10px var(--paper), 0 0 0 11px var(--line), 0 30px 50px -25px rgba(42,30,59,.5);
+  }
+  .scratch .under {
+    position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center; text-align: center;
+    background: radial-gradient(circle at 50% 40%, #fff 0%, var(--reveal) 140%);
+  }
+  .scratch .under .word { font: 400 clamp(3rem, 16vw, 4.6rem)/1 var(--f-display); color: var(--reveal-deep); }
+  .scratch .under small { display: block; font: 500 var(--step--1) var(--f-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--reveal-deep); margin-bottom: 6px; }
+  .scratch canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; touch-action: none; cursor: grab; transition: opacity .8s; }
+  .scratch canvas.gone { opacity: 0; pointer-events: none; }
+  .hint { text-align: center; font: 500 var(--step--1) var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+
+  /* ---------- reveal ---------- */
+  .reveal-head { text-align: center; }
+  .reveal-head .its { font: 500 var(--step-0) var(--f-mono); letter-spacing: .3em; text-transform: uppercase; color: var(--reveal-deep); }
+  .reveal-head .word { font: 400 var(--step-4)/.95 var(--f-display); color: var(--reveal-deep); margin: 6px 0 12px; display: flex; justify-content: center; flex-wrap: wrap; }
+  .reveal-head .word span { display: inline-block; animation: pop .7s cubic-bezier(.34,1.56,.64,1) both; }
+  @keyframes pop { from { opacity: 0; transform: translateY(40px) scale(.4) rotate(-10deg); } }
+  .letter {
+    margin-top: 20px; padding: 20px 22px; border-radius: 20px; background: var(--wash);
+    font-size: var(--step-1); line-height: 1.5; transition: background 1.2s;
+  }
+  .letter .sig { display: block; margin-top: 10px; font: 400 var(--step-1) var(--f-display); color: var(--reveal-deep); }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+  .stats div { padding: 12px; border-radius: 16px; border: 1px solid var(--line); text-align: center; }
+  .stats b { display: block; font: 400 var(--step-2)/1.1 var(--f-display); font-variant-numeric: tabular-nums; }
+  .stats span { font: 500 .7rem/1.3 var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+  /* ---------- setup ---------- */
+  .field { display: grid; gap: 6px; margin-bottom: 16px; }
+  .field label, .field legend { font: 600 var(--step--1) var(--f-body); color: var(--muted); padding: 0; }
+  .field input[type=text], .field textarea {
+    width: 100%; padding: 13px 14px; border-radius: 14px; border: 1.5px solid var(--line);
+    background: #fff; color: var(--ink); font: 400 var(--step-0)/1.4 var(--f-body);
+  }
+  .field textarea { min-height: 92px; resize: vertical; }
+  fieldset.field { border: 0; margin: 0 0 16px; padding: 0; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .seg label { position: relative; }
+  .seg input { position: absolute; opacity: 0; inset: 0; }
+  .seg span {
+    display: block; text-align: center; padding: 14px; border-radius: 14px; border: 1.5px solid var(--line);
+    font: 600 var(--step-0) var(--f-body); color: var(--ink); cursor: pointer; background: #fff;
+  }
+  .seg input:checked + span.b { background: var(--boy); border-color: var(--boy-deep); }
+  .seg input:checked + span.g { background: var(--girl); border-color: var(--girl-deep); }
+  .seg input:focus-visible + span { outline: 3px solid var(--gold); outline-offset: 2px; }
+  .linkbox { margin-top: 18px; padding: 16px; border-radius: 16px; background: var(--wash); display: grid; gap: 10px; }
+  .linkbox code { font: 400 .8rem/1.4 var(--f-mono); word-break: break-all; color: var(--ink); }
+  .note { font-size: var(--step--1); color: var(--muted); }
+  .err { color: var(--girl-deep); font-weight: 600; }
+
+  #confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .pendulum.line, .pendulum.circle { animation: none; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="masthead">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="bg1" x1="0" x2="1"><stop offset="0" stop-color="#6fa7e0"/><stop offset="1" stop-color="#ee8fb8"/></linearGradient></defs>
+        <circle cx="16" cy="16" r="14" fill="url(#bg1)"/>
+        <path d="M9 19a7 7 0 0 1 14 0" fill="none" stroke="#fbf9fd" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="16" cy="11" r="2.2" fill="#fbf9fd"/>
+      </svg>
+      The Bump Oracle
+    </div>
+    <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true">♪ Sound on</button>
+  </header>
+  <section class="card" id="stage" aria-live="polite"></section>
+</main>
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<script>
+(() => {
+  'use strict';
+
+  /* =========================================================
+     Secret link: the baby's sex never lives in this file.
+     The setup screen packs {sex, her name, your name, message}
+     into a scrambled code in the URL hash, so the page can sit
+     in a public repo without spoiling anything.
+     ========================================================= */
+  const KEY = 'little-one-2026';
+  const enc = (obj) => {
+    const bytes = new TextEncoder().encode(JSON.stringify(obj));
+    const out = bytes.map((b, i) => b ^ KEY.charCodeAt(i % KEY.length) ^ (i * 7 & 255));
+    let s = ''; out.forEach(b => s += String.fromCharCode(b));
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const dec = (code) => {
+    try {
+      const s = atob(code.replace(/-/g, '+').replace(/_/g, '/'));
+      const bytes = Uint8Array.from(s, (c, i) => c.charCodeAt(0) ^ KEY.charCodeAt(i % KEY.length) ^ (i * 7 & 255));
+      const obj = JSON.parse(new TextDecoder().decode(bytes));
+      return obj && (obj.s === 'b' || obj.s === 'g') ? obj : null;
+    } catch { return null; }
+  };
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const stage = $('#stage');
+  const esc = (t) => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const wait = (ms) => new Promise(r => setTimeout(r, reduced ? Math.min(ms, 250) : ms));
+
+  /* ---------------- sound (WebAudio, nothing to download) ---------------- */
+  let actx = null, soundOn = true;
+  const soundBtn = $('#soundBtn');
+  soundBtn.addEventListener('click', () => {
+    soundOn = !soundOn;
+    soundBtn.textContent = soundOn ? '♪ Sound on' : '♪ Sound off';
+    soundBtn.setAttribute('aria-pressed', String(soundOn));
+  });
+  const ac = () => {
+    if (!soundOn) return null;
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch { return null; }
+    return actx;
+  };
+  function tone(freq, dur = .18, type = 'sine', vol = .12, when = 0) {
+    const a = ac(); if (!a) return;
+    const t = a.currentTime + when, o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .015); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + .05);
+  }
+  const blip = () => { tone(660, .12, 'triangle', .08); tone(990, .14, 'sine', .05, .05); };
+  const boing = (dir) => { const a = ac(); if (!a) return; const t = a.currentTime, o = a.createOscillator(), g = a.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(dir > 0 ? 300 : 520, t); o.frequency.exponentialRampToValueAtTime(dir > 0 ? 620 : 240, t + .25);
+    g.gain.setValueAtTime(.1, t); g.gain.exponentialRampToValueAtTime(.0001, t + .3); o.connect(g).connect(a.destination); o.start(t); o.stop(t + .35); };
+  function drumroll(ms) {
+    const a = ac(); if (!a) return;
+    const buf = a.createBuffer(1, a.sampleRate * .05, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const n = Math.floor(ms / 55);
+    for (let i = 0; i < n; i++) {
+      const s = a.createBufferSource(), g = a.createGain(), f = a.createBiquadFilter();
+      s.buffer = buf; f.type = 'bandpass'; f.frequency.value = 900;
+      g.gain.value = .05 + .18 * (i / n);
+      s.connect(f).connect(g).connect(a.destination); s.start(a.currentTime + i * .055);
+    }
+  }
+  const fanfare = () => [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => { tone(f, .5, 'triangle', .1, i * .11); tone(f / 2, .6, 'sine', .06, i * .11); });
+
+  /* ---------------- gauge ---------------- */
+  // value: -100 (boy) … +100 (girl)
+  let value = 0;
+  const gaugeSVG = () => `
+    <div class="gauge-wrap">
+      <svg class="gauge" viewBox="0 0 320 180" role="img" aria-label="Oracle gauge">
+        <defs>
+          <linearGradient id="arc" x1="0" x2="1">
+            <stop offset="0" stop-color="#6fa7e0"/><stop offset=".5" stop-color="#c7b5e6"/><stop offset="1" stop-color="#ee8fb8"/>
+          </linearGradient>
+        </defs>
+        <path d="M30 150 A130 130 0 0 1 290 150" fill="none" stroke="url(#arc)" stroke-width="22" stroke-linecap="round"/>
+        ${Array.from({ length: 11 }, (_, i) => {
+          const a = Math.PI * (1 - i / 10), r1 = 106, r2 = i % 5 ? 98 : 92;
+          return `<line x1="${160 + r1 * Math.cos(a)}" y1="${150 - r1 * Math.sin(a)}" x2="${160 + r2 * Math.cos(a)}" y2="${150 - r2 * Math.sin(a)}" stroke="#6d6182" stroke-width="${i % 5 ? 1 : 2}" stroke-linecap="round"/>`;
+        }).join('')}
+        <text x="22" y="176">BOY</text>
+        <text x="298" y="176" text-anchor="end">GIRL</text>
+        <g class="needle" style="transform: rotate(${value * .9}deg)">
+          <path d="M160 40 L166 150 L154 150 Z" fill="#2a1e3b"/>
+        </g>
+        <circle cx="160" cy="150" r="13" fill="#2a1e3b"/>
+        <circle cx="160" cy="150" r="5" fill="#e3a23b"/>
+      </svg>
+      <div class="readout"><span>Boy <b class="pb">${pct(-value)}</b></span><span>Oracle reading</span><span>Girl <b class="pg">${pct(value)}</b></span></div>
+    </div>`;
+  function pct(v) { return ((v + 100) / 2).toFixed(1) + '%'; }
+  function setNeedle(v, wild = false) {
+    value = Math.max(-100, Math.min(100, v));
+    const n = $('.needle', stage); if (!n) return;
+    n.classList.toggle('wild', wild);
+    n.style.transform = `rotate(${value * .9}deg)`;
+    const pb = $('.pb', stage), pg = $('.pg', stage);
+    if (pb) pb.textContent = pct(-value);
+    if (pg) pg.textContent = pct(value);
+  }
+
+  /* ---------------- the questionnaire ---------------- */
+  // d > 0 leans girl, d < 0 leans boy. Every claim is folklore, made up, or both.
+  const Q = [
+    { eyebrow: 'Cravings', q: 'What does the baby keep ordering at 11pm?', opts: [
+      { g: '🍫', t: 'Something sweet: chocolate, fruit, cake', d: 32, n: 'Sweet cravings point to a girl. Sugar and spice, as the scholars say.' },
+      { g: '🥨', t: 'Salty things: chips, pickles, cheese', d: -32, n: 'Salt cravings mean a boy. It is all in the sodium.' },
+      { g: '🍋', t: 'Sour: lemons, sour sweets, vinegar', d: -18, n: 'Sour points to a boy, according to a 1974 almanac nobody has been able to find.' },
+      { g: '🍽️', t: 'Everything. All of it. Now.', d: 6, n: 'Eating for two is statistically ambiguous. Slight lean to girl, because she shares.' } ] },
+    { eyebrow: 'Mornings', q: 'How has morning sickness treated you?', opts: [
+      { g: '🌤️', t: 'Barely noticed it', d: -26, n: 'Smooth sailing usually means a boy. Girls bring the extra hormones.' },
+      { g: '🌊', t: 'Rough. Very rough.', d: 30, n: 'Heavy nausea is a classic girl sign. Also a classic Tuesday.' },
+      { g: '🕰️', t: '"Morning" sickness is a lie, it was all day', d: 14, n: 'All-day sickness leans girl. Babies do not read clocks.' },
+      { g: '🐟', t: 'Only when someone cooked fish', d: -12, n: 'Fish aversion indicates a boy. The fish confirmed it, off the record.' } ] },
+    { eyebrow: 'The bump', q: 'Stand sideways in the mirror. How are you carrying?', opts: [
+      { g: '⬆️', t: 'High, up near the ribs', d: 26, n: 'Carrying high: girl. She is aiming for the top already.' },
+      { g: '⬇️', t: 'Low, close to the hips', d: -26, n: 'Carrying low: boy. Grounded, like his father.' },
+      { g: '🏀', t: 'Straight out front like a basketball', d: -20, n: 'The basketball shape is a well-known boy sign. Or a basketball.' },
+      { g: '🫧', t: 'Spread out round the middle', d: 22, n: 'Wide carry leans girl. Plenty of room for her wardrobe.' } ], twoCol: true },
+    { type: 'slider', eyebrow: 'Night shift', q: 'How many times did you get up to pee last night?' },
+    { eyebrow: 'The glow', q: 'How are your skin and hair lately?', opts: [
+      { g: '✨', t: 'Glowing, honestly', d: -22, n: 'The glow means a boy. Folklore says a daughter steals her mother\'s beauty. Rude, but that is the tale.' },
+      { g: '🌋', t: 'Breakouts I have not had since school', d: 26, n: 'Girl. She is already borrowing your things.' },
+      { g: '💇‍♀️', t: 'Hair is thicker and shinier than ever', d: -14, n: 'Thick hair leans boy, unless it is curly, in which case the Oracle will not comment.' },
+      { g: '🪞', t: 'I have not looked in a mirror since week 6', d: 4, n: 'Inconclusive. The Oracle respects your choices.' } ] },
+    { eyebrow: 'Bedtime', q: 'Which side do you end up sleeping on?', opts: [
+      { g: '👈', t: 'Left side', d: 20, n: 'Left side: girl. The heart is on the left. So is she.' },
+      { g: '👉', t: 'Right side', d: -20, n: 'Right side: boy. He is always right, apparently.' },
+      { g: '🛏️', t: 'Whichever side has the most pillows', d: 0, n: 'The pillow fort is neutral territory. No reading possible.' },
+      { g: '😵', t: 'Sleep? What is sleep?', d: -6, n: 'Lack of sleep indicates practice for either. Faint lean to boy.' } ], twoCol: true },
+    { eyebrow: 'Feet', q: 'Your feet lately are…', opts: [
+      { g: '🧊', t: 'Always cold', d: -26, n: 'Cold feet: boy. This one is genuinely in the old wives\' handbook.' },
+      { g: '🔥', t: 'Toasty warm', d: 22, n: 'Warm feet mean a girl. Cozy socks were never needed.' },
+      { g: '🎈', t: 'Swollen like little balloons', d: 10, n: 'Swelling leans girl. She likes a dramatic entrance.' },
+      { g: '👀', t: 'I can no longer see my feet', d: -10, n: 'Invisible feet point to a boy. The Oracle is guessing here.' } ], twoCol: true },
+    { type: 'ring', eyebrow: 'The ring test' },
+    { eyebrow: 'Heartburn', q: 'Final question. How is the heartburn?', opts: [
+      { g: '😌', t: 'None at all', d: 8, n: 'No heartburn means a baby with very little hair. That does not help the Oracle at all.' },
+      { g: '🌶️', t: 'Some, after spicy food', d: -8, n: 'Some heartburn: some hair. Slight lean to boy, for reasons.' },
+      { g: '🌋', t: 'Volcanic, every single night', d: 0, n: 'Volcanic heartburn means a full head of hair. Possibly a beard. The Oracle needs a moment.' } ] },
+  ];
+
+  // "Peer review" reversals that fire after given steps, to keep her guessing.
+  const CORRECTIONS = {
+    4: { from: 0, text: 'The craving result from question 1 has been reversed after peer review. Please disregard what we said about sugar.' },
+    6: { from: 2, text: 'A senior grandmother has reviewed your bump shape and flipped the reading. She was very sure.' },
+  };
+
+  let answers = [];   // {step, d}
+  let step = 0;
+  let cfg = null;
+
+  function progressBar() {
+    return `<div class="progress" aria-hidden="true">${Q.map((_, i) => `<i class="${i < step ? 'done' : ''}"></i>`).join('')}</div>`;
+  }
+  function tagFor(d) {
+    if (d > 0) return '<span class="tag girl">Reading: girl ↗</span>';
+    if (d < 0) return '<span class="tag boy">↖ Reading: boy</span>';
+    return '<span class="tag none">Reading: inconclusive</span>';
+  }
+
+  function record(d, note, nextBtn) {
+    answers.push({ step, d });
+    setNeedle(value + d);
+    boing(d);
+    const box = document.createElement('div');
+    let html = `<div class="finding">${tagFor(d)}<p>${esc(note)}</p></div>`;
+    const c = CORRECTIONS[step];
+    if (c) {
+      const a = answers.find(x => x.step === c.from);
+      if (a && a.d) {
+        html += `<div class="correction"><strong>Lab correction</strong>${esc(c.text)}</div>`;
+        setTimeout(() => { setNeedle(value - 2 * a.d); boing(-a.d); a.d = -a.d; }, reduced ? 50 : 1400);
+      }
+    }
+    box.innerHTML = html + `<div class="actions"><button class="btn wide" type="button">${nextBtn || (step === Q.length - 1 ? 'Ask the Oracle for a verdict' : 'Next question')}</button></div>`;
+    stage.querySelector('.qbody').appendChild(box);
+    const b = box.querySelector('.btn');
+    b.addEventListener('click', () => { blip(); step++; render(); });
+    setTimeout(() => b.focus({ preventScroll: true }), 50);
+    box.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'nearest' });
+  }
+
+  function renderChoice(item) {
+    stage.innerHTML = `<div class="screen">${gaugeSVG()}${progressBar()}
+      <p class="eyebrow">Question ${step + 1} of ${Q.length} · ${esc(item.eyebrow)}</p>
+      <h2>${esc(item.q)}</h2>
+      <div class="qbody"><div class="options ${item.twoCol ? 'two' : ''}">
+        ${item.opts.map((o, i) => `<button class="opt" type="button" data-i="${i}"><span class="glyph" aria-hidden="true">${o.g}</span><span>${esc(o.t)}</span></button>`).join('')}
+      </div></div></div>`;
+    const wrap = $('.options', stage);
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest('.opt'); if (!btn || wrap.classList.contains('locked')) return;
+      btn.classList.add('picked'); wrap.classList.add('locked');
+      const o = item.opts[+btn.dataset.i];
+      record(o.d, o.n);
+    });
+  }
+
+  function renderSlider(item) {
+    stage.innerHTML = `<div class="screen">${gaugeSVG()}${progressBar()}
+      <p class="eyebrow">Question ${step + 1} of ${Q.length} · ${esc(item.eyebrow)}</p>
+      <h2>${esc(item.q)}</h2>
+      <div class="qbody">
+        <div class="slider-box">
+          <div class="big-num"><span id="pv">2</span><small>bathroom trips</small></div>
+          <input id="pee" type="range" min="0" max="8" step="1" value="2" aria-label="Bathroom trips last night">
+          <div class="ticks"><span>0</span><span>4</span><span>8+</span></div>
+        </div>
+        <div class="actions"><button class="btn wide" id="peeGo" type="button">Submit to the Oracle</button></div>
+      </div></div>`;
+    const r = $('#pee', stage), pv = $('#pv', stage);
+    r.addEventListener('input', () => { pv.textContent = r.value + (r.value === '8' ? '+' : ''); tone(300 + r.value * 60, .06, 'triangle', .04); });
+    $('#peeGo', stage).addEventListener('click', (e) => {
+      const n = +r.value; e.currentTarget.parentElement.remove(); r.disabled = true;
+      const d = n === 0 ? 0 : (n % 2 === 0 ? 18 : -18);
+      const note = n === 0 ? 'Zero trips? The Oracle suspects you are not being honest, and declines to read this.'
+        : `${n} trip${n > 1 ? 's' : ''}. Even numbers lean girl, odd numbers lean boy. This is called hydration science.`;
+      record(d, note);
+    });
+  }
+
+  function renderRing(item) {
+    stage.innerHTML = `<div class="screen">${gaugeSVG()}${progressBar()}
+      <p class="eyebrow">Question ${step + 1} of ${Q.length} · ${esc(item.eyebrow)}</p>
+      <h2>Hold a ring on a string over your bump.</h2>
+      <p class="muted">The Oracle has one ready. If it swings in a line, it's a boy. If it swings in a circle, it's a girl. Do not move. Do not breathe too loudly.</p>
+      <div class="qbody">
+        <div class="ring-stage"><div class="pendulum" id="pend"><div class="string"></div><div class="ring"></div></div><div class="bump"></div></div>
+        <p class="ring-status" id="rs">The ring is waiting</p>
+        <div class="actions"><button class="btn wide" id="ringGo" type="button">Lower the ring</button></div>
+      </div></div>`;
+    $('#ringGo', stage).addEventListener('click', async (e) => {
+      e.currentTarget.parentElement.remove();
+      const pend = $('#pend', stage), rs = $('#rs', stage);
+      const roll = Math.random();
+      const first = roll < .5 ? 'line' : 'circle';
+      const other = first === 'line' ? 'circle' : 'line';
+      const flips = Math.random() < .45;
+      rs.textContent = 'Reading the swing…';
+      pend.className = 'pendulum ' + first; tone(880, .4, 'sine', .05);
+      await wait(2600);
+      let final = first;
+      if (flips) {
+        rs.textContent = 'Wait. It changed direction…';
+        pend.className = 'pendulum ' + other; tone(440, .4, 'sine', .05);
+        await wait(2400);
+        final = 'both';
+      }
+      pend.className = 'pendulum';
+      rs.textContent = final === 'both' ? 'It did both' : final === 'line' ? 'A straight line' : 'A circle';
+      if (final === 'both') record(0, 'The ring swung in a line and then a circle. The ring is being unhelpful on purpose.');
+      else if (final === 'line') record(-28, 'A clear straight line. Every grandmother agrees: boy. (Grandmothers polled: one.)');
+      else record(28, 'A lovely circle. Girl, says the ring, with total confidence and no evidence.');
+    });
+  }
+
+  /* ---------------- verdict: the needle loses its mind ---------------- */
+  async function renderComputing() {
+    stage.innerHTML = `<div class="screen">${gaugeSVG()}
+      <p class="eyebrow">Calculating</p>
+      <h2>The Oracle is reaching a verdict</h2>
+      <ul class="log" id="log"></ul></div>`;
+    const log = $('#log', stage);
+    const lines = [
+      'Adding up cravings, glow and feet',
+      'Consulting three grandmothers and a cat',
+      'Cross-referencing the phase of the moon',
+      'Re-counting last night\'s bathroom trips',
+      'Re-swinging the ring, for science',
+      'Reconciling contradictory evidence',
+    ];
+    drumroll(reduced ? 600 : 7600);
+    for (const l of lines) {
+      const li = document.createElement('li'); li.textContent = l + '…'; log.appendChild(li);
+      for (let k = 0; k < 3; k++) { setNeedle((Math.random() * 2 - 1) * 95, true); await wait(400); }
+      li.classList.add('ok');
+    }
+    setNeedle(0); await wait(1300);
+    stage.innerHTML = `<div class="screen">${gaugeSVG()}
+      <p class="eyebrow">Official verdict</p>
+      <h1>Exactly 50 / 50.</h1>
+      <p>After ${Q.length} questions, a ring test and two peer-reviewed corrections, the science is perfectly balanced. The Oracle has thrown its hands in the air.</p>
+      <p class="muted">Luckily, someone already knows the answer. They sealed it in an envelope for you.</p>
+      <div class="actions"><button class="btn wide" id="openEnv" type="button">Open the envelope</button></div></div>`;
+    $('#openEnv', stage).addEventListener('click', () => { blip(); renderScratch(); });
+  }
+
+  /* ---------------- scratch card ---------------- */
+  function renderScratch() {
+    const word = cfg.s === 'g' ? 'Girl' : 'Boy';
+    stage.innerHTML = `<div class="screen">
+      <p class="eyebrow">For ${esc(cfg.n || 'you')}, from ${esc(cfg.f || 'me')}</p>
+      <h2>Scratch the seal to find out</h2>
+      <div class="scratch" id="sc">
+        <div class="under" aria-hidden="true"><div><small>It's a</small><div class="word">${word}</div></div></div>
+        <canvas id="scr" aria-label="Scratch area: drag across it to reveal"></canvas>
+      </div>
+      <p class="hint" id="hint">Use your finger to scratch</p>
+      <div class="actions" style="justify-content:center"><button class="btn ghost" id="skip" type="button">Reveal it for me</button></div></div>`;
+
+    const sc = $('#sc', stage), cv = $('#scr', stage), ctx = cv.getContext('2d', { willReadFrequently: true });
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const size = sc.clientWidth;
+    cv.width = cv.height = Math.round(size * dpr);
+    ctx.scale(dpr, dpr);
+
+    // foil: the same blue → lavender → pink as the gauge, with gold flecks
+    const g = ctx.createLinearGradient(0, 0, size, size);
+    g.addColorStop(0, '#9cc2ea'); g.addColorStop(.5, '#cfc1ea'); g.addColorStop(1, '#f2b2cf');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, size, size);
+    for (let i = 0; i < 260; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.random() * .5})`;
+      ctx.beginPath(); ctx.arc(Math.random() * size, Math.random() * size, Math.random() * 1.8, 0, 7); ctx.fill();
+    }
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = `rgba(227,162,59,${.4 + Math.random() * .5})`;
+      const x = Math.random() * size, y = Math.random() * size, r = 1 + Math.random() * 2.5;
+      ctx.beginPath(); ctx.moveTo(x, y - r * 2); ctx.lineTo(x + r * .6, y); ctx.lineTo(x, y + r * 2); ctx.lineTo(x - r * .6, y); ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = 'rgba(42,30,59,.75)'; ctx.textAlign = 'center';
+    ctx.font = `400 ${size * .1}px Gloock, Georgia, serif`;
+    ctx.fillText('?', size / 2, size * .47);
+    ctx.font = `500 ${size * .04}px "DM Mono", monospace`;
+    ctx.fillText('SCRATCH HERE', size / 2, size * .58);
+
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.lineCap = ctx.lineJoin = 'round'; ctx.lineWidth = size * .14;
+
+    let down = false, last = null, moves = 0, done = false;
+    const pos = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const scratchAt = (p) => {
+      ctx.beginPath();
+      if (last) { ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+      else { ctx.arc(p.x, p.y, ctx.lineWidth / 2, 0, 7); ctx.fill(); }
+      last = p;
+      if (++moves % 6 === 0) { tone(1800 + Math.random() * 1400, .03, 'square', .015); check(); }
+    };
+    const check = () => {
+      const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      let clear = 0, total = 0;
+      for (let i = 3; i < data.length; i += 4 * 37) { total++; if (data[i] < 40) clear++; }
+      if (clear / total > .42) finish();
+    };
+    const finish = () => {
+      if (done) return; done = true;
+      cv.classList.add('gone'); $('#hint', stage).textContent = '';
+      const sk = $('#skip', stage); if (sk) sk.parentElement.remove();
+      celebrate();
+    };
+    cv.addEventListener('pointerdown', (e) => { down = true; last = null; cv.setPointerCapture(e.pointerId); scratchAt(pos(e)); });
+    cv.addEventListener('pointermove', (e) => { if (down) scratchAt(pos(e)); });
+    const up = () => { down = false; last = null; };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    $('#skip', stage).addEventListener('click', finish);
+  }
+
+  /* ---------------- celebration ---------------- */
+  async function celebrate() {
+    const girl = cfg.s === 'g';
+    document.documentElement.dataset.baby = girl ? 'girl' : 'boy';
+    fanfare();
+    confetti(girl);
+    await wait(1600);
+    const word = girl ? 'GIRL' : 'BOY';
+    const msg = cfg.m ? esc(cfg.m).replace(/\n/g, '<br>') : (girl
+      ? 'Our little girl is on her way. I can\'t wait to meet her with you.'
+      : 'Our little boy is on his way. I can\'t wait to meet him with you.');
+    const totals = answers.reduce((a, x) => (x.d > 0 ? a.g++ : x.d < 0 ? a.b++ : a.n++, a), { g: 0, b: 0, n: 0 });
+    stage.innerHTML = `<div class="screen">
+      <div class="reveal-head">
+        <div class="its">It's a</div>
+        <div class="word" aria-label="${word}">${[...word].map((c, i) => `<span style="animation-delay:${i * .12}s">${c}</span>`).join('')}</div>
+      </div>
+      <div class="letter">${msg}${cfg.f ? `<span class="sig">— ${esc(cfg.f)}</span>` : ''}</div>
+      <p class="eyebrow" style="margin-top:22px">How the Oracle did</p>
+      <div class="stats">
+        <div><b>${totals.b}</b><span>Said boy</span></div>
+        <div><b>${totals.g}</b><span>Said girl</span></div>
+        <div><b>${totals.n}</b><span>Gave up</span></div>
+      </div>
+      <p class="muted" style="margin-top:14px">None of those symptoms mean anything. The Oracle made them all up. The only reliable test was the envelope.</p>
+      <div class="actions"><button class="btn" id="more" type="button">More confetti</button><button class="btn ghost" id="again" type="button">Play again</button></div>
+    </div>`;
+    $('#more', stage).addEventListener('click', () => { confetti(girl); fanfare(); });
+    $('#again', stage).addEventListener('click', () => { delete document.documentElement.dataset.baby; start(); });
+  }
+
+  const cc = $('#confetti'), cctx = cc.getContext('2d');
+  let parts = [], raf = 0;
+  function confetti(girl) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    cc.width = innerWidth * dpr; cc.height = innerHeight * dpr; cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const pal = girl ? ['#ee8fb8', '#f6b8d2', '#c2427a', '#ffffff', '#e3a23b', '#fbd3e3']
+                     : ['#6fa7e0', '#a9cdf1', '#2f6fae', '#ffffff', '#e3a23b', '#d4e6f8'];
+    const count = reduced ? 60 : 260;
+    for (let i = 0; i < count; i++) {
+      const fromLeft = i % 2 === 0;
+      parts.push({
+        x: fromLeft ? -10 : innerWidth + 10, y: innerHeight * (.55 + Math.random() * .3),
+        vx: (fromLeft ? 1 : -1) * (4 + Math.random() * 9), vy: -(9 + Math.random() * 11),
+        w: 6 + Math.random() * 8, h: 4 + Math.random() * 6, r: Math.random() * 6, vr: (Math.random() - .5) * .35,
+        c: pal[i % pal.length], shape: i % 7 === 0 ? 'heart' : i % 3 === 0 ? 'dot' : 'rect', life: 0,
+      });
+    }
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+  function heart(ctx, s) {
+    ctx.beginPath(); ctx.moveTo(0, s * .3);
+    ctx.bezierCurveTo(-s, -s * .4, -s * .4, -s, 0, -s * .35);
+    ctx.bezierCurveTo(s * .4, -s, s, -s * .4, 0, s * .3); ctx.fill();
+  }
+  function tick() {
+    cctx.clearRect(0, 0, innerWidth, innerHeight);
+    parts = parts.filter(p => p.y < innerHeight + 40 && p.life < 600);
+    for (const p of parts) {
+      p.life++; p.vy += .28; p.vx *= .985; p.vy *= .985; p.x += p.vx + Math.sin(p.life / 12) * .6; p.y += p.vy; p.r += p.vr;
+      cctx.save(); cctx.translate(p.x, p.y); cctx.rotate(p.r); cctx.fillStyle = p.c;
+      if (p.shape === 'rect') { cctx.scale(1, Math.cos(p.life / 6)); cctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); }
+      else if (p.shape === 'dot') { cctx.beginPath(); cctx.arc(0, 0, p.h / 1.6, 0, 7); cctx.fill(); }
+      else heart(cctx, p.w * .9);
+      cctx.restore();
+    }
+    raf = parts.length ? requestAnimationFrame(tick) : 0;
+  }
+
+  /* ---------------- screens ---------------- */
+  function render() {
+    if (step >= Q.length) return renderComputing();
+    const item = Q[step];
+    if (item.type === 'slider') return renderSlider(item);
+    if (item.type === 'ring') return renderRing(item);
+    renderChoice(item);
+    window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' });
+  }
+
+  function start() {
+    answers = []; step = 0; value = 0;
+    const name = cfg.n ? esc(cfg.n) : 'there';
+    stage.innerHTML = `<div class="screen">
+      ${gaugeSVG()}
+      <p class="eyebrow">Est. by grandmothers · Peer reviewed by nobody</p>
+      <h1>Hello, ${name}. The Oracle will now read your bump.</h1>
+      <p>For centuries, people have predicted a baby's sex from cravings, swollen feet and wedding rings on strings. The Oracle has collected all of this wisdom into one completely unscientific machine.</p>
+      <p class="muted">Answer ${Q.length} questions honestly. Watch the needle. At the end, the Oracle will tell you whether it's a boy or a girl.</p>
+      <div class="actions"><button class="btn wide" id="go" type="button">Begin the reading</button></div>
+    </div>`;
+    $('#go', stage).addEventListener('click', () => { blip(); render(); });
+  }
+
+  function setup(error) {
+    stage.innerHTML = `<div class="screen">
+      <p class="eyebrow">For the one who knows · Setup</p>
+      <h1>Make the secret link</h1>
+      <p class="muted">Fill this in privately. You'll get a link that hides the answer in a scrambled code, so nothing on the screen or in the address gives it away until the very end.</p>
+      ${error ? `<p class="err">${esc(error)}</p>` : ''}
+      <form id="sf" autocomplete="off">
+        <fieldset class="field"><legend>The baby is a…</legend>
+          <div class="seg">
+            <label><input type="radio" name="sex" id="sexB" value="b" required><span class="b">Boy</span></label>
+            <label><input type="radio" name="sex" id="sexG" value="g"><span class="g">Girl</span></label>
+          </div>
+        </fieldset>
+        <div class="field"><label for="her">Her name</label><input type="text" id="her" maxlength="40" placeholder="e.g. Amira"></div>
+        <div class="field"><label for="you">Your name (signs the message)</label><input type="text" id="you" maxlength="40" placeholder="e.g. Firas"></div>
+        <div class="field"><label for="msg">A message shown after the reveal (optional)</label><textarea id="msg" maxlength="400" placeholder="Leave blank for a short default message"></textarea></div>
+        <button class="btn wide" type="submit">Create the link</button>
+      </form>
+      <div id="out"></div>
+    </div>`;
+    $('#sf', stage).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const s = $('input[name=sex]:checked', stage)?.value;
+      if (!s) return;
+      const code = enc({ s, n: $('#her', stage).value.trim(), f: $('#you', stage).value.trim(), m: $('#msg', stage).value.trim() });
+      const url = location.href.split('#')[0].split('?')[0] + '#' + code;
+      $('#out', stage).innerHTML = `<div class="linkbox">
+        <strong>Her link is ready</strong>
+        <code id="lnk">${esc(url)}</code>
+        <div class="actions" style="margin-top:4px"><button class="btn" id="copy" type="button">Copy link</button><a class="btn ghost" href="${esc(url)}" target="_blank" rel="noopener">Test it yourself</a></div>
+        <p class="note">Send this link to her, or open it on the phone you'll hand her. Testing it here shows the answer at the end, so do it when she's not around.</p>
+      </div>`;
+      $('#copy', stage).addEventListener('click', async (ev) => {
+        const b = ev.currentTarget;
+        try { await navigator.clipboard.writeText(url); b.textContent = 'Copied'; }
+        catch { const r = document.createRange(); r.selectNodeContents($('#lnk', stage)); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = 'Selected. Copy it'; }
+      });
+    });
+  }
+
+  function boot() {
+    const h = location.hash.slice(1);
+    if (!h || h === 'setup') { cfg = null; return setup(); }
+    cfg = dec(h);
+    if (!cfg) return setup('That link looks damaged. Make a new one below.');
+    start();
+  }
+  addEventListener('hashchange', boot);
+  boot();
+})();
+</script>
+</body>
+</html>

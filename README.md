@@ -38,3 +38,9 @@ Then open <http://localhost:8000/>.
 - `index.html` — landing page with the on-screen-controls toggle.
 - `baby-crawl.html` — the game.
 - `touch-controls.js` — optional on-screen joystick + Mom button for touch devices.
+
+## The Bump Oracle
+
+`gender-reveal.html` is a separate little gender-reveal game: a tongue-in-cheek "oracle" quizzes the mum-to-be on pregnancy symptoms, swings a boy/girl needle around on made-up folklore, gives up at exactly 50/50, then hands over a scratch-off seal that reveals the answer with confetti.
+
+The answer is never stored in the file. Open the page with no hash to get the setup form, which packs the baby's sex, names and an optional message into a scrambled code in the link's `#hash`. Send her that link.
