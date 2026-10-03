@@ -135,6 +135,9 @@
   @keyframes hop { to { transform: translateY(-16px); } }
   @keyframes flap { from { transform: rotate(0deg); } to { transform: rotate(-38deg); } }
   .bundle { fill: var(--bundle); transition: fill 1.2s; }
+  .stork .jaw { transform-box: view-box; transform-origin: 63px 59px; }
+  .stork.talking .jaw { animation: jaw .16s ease-in-out infinite alternate; }
+  @keyframes jaw { to { transform: rotate(-16deg); } }
 
   .card-stork { width: 132px; margin: -8px auto 6px; }
 
@@ -390,6 +393,7 @@
     soundOn = !soundOn;
     soundBtn.textContent = soundOn ? '♪ Son activé' : '♪ Son coupé';
     soundBtn.setAttribute('aria-pressed', String(soundOn));
+    if (!soundOn) hush();
   });
   const ac = () => {
     if (!soundOn) return null;
@@ -422,6 +426,39 @@
       s.connect(f).connect(g).connect(a.destination); s.start(a.currentTime + i * .055);
     }
   }
+  /* ---------------- la voix de Madame Cigogne (synthèse vocale du téléphone) ---------------- */
+  const synth = window.speechSynthesis || null;
+  let voice = null, talking = false, sayId = 0;
+  function pickVoice() {
+    if (!synth) return;
+    const fr = synth.getVoices().filter(v => /^fr/i.test(v.lang));
+    voice = fr.find(v => /amélie|amelie|audrey|aurélie|marie|denise|julie|céline|google/i.test(v.name)) || fr.find(v => /fr-FR/i.test(v.lang)) || fr[0] || null;
+  }
+  if (synth) { pickVoice(); synth.addEventListener?.('voiceschanged', pickVoice); }
+  function talk(on) {
+    talking = on;
+    $$('.stork').forEach(s => s.classList.toggle('talking', on));
+  }
+  // Speaks and resolves when she is done (or after a safety timeout).
+  function say(text) {
+    return new Promise(res => {
+      const id = ++sayId;
+      if (!synth || !soundOn || !text) { talk(false); return res(); }
+      try { synth.cancel(); } catch {}
+      const clean = String(text).replace(/[↖↗«»()]/g, '').replace(/\u202F/g, ' ');
+      const u = new SpeechSynthesisUtterance(clean);
+      u.lang = 'fr-FR'; if (voice) u.voice = voice;
+      u.pitch = 1.35; u.rate = 1.02;
+      let done = false;
+      const fin = () => { if (done) return; done = true; if (id === sayId) talk(false); res(); };
+      u.onstart = () => { if (id === sayId) talk(true); };
+      u.onend = fin; u.onerror = fin;
+      setTimeout(fin, 2000 + clean.length * 85);
+      try { synth.speak(u); talk(true); } catch { fin(); }
+    });
+  }
+  const hush = () => { sayId++; try { synth && synth.cancel(); } catch {} talk(false); };
+
   const fanfare = () => [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => { tone(f, .5, 'triangle', .1, i * .11); tone(f / 2, .6, 'sine', .06, i * .11); });
 
   /* ---------------- Madame Cigogne (SVG) ---------------- */
@@ -446,8 +483,8 @@
           <circle cx="80" cy="52" r="20" fill="#ffffff" stroke="#ddd3ea" stroke-width="2"/>
           <path d="M88 33 L100 26 L98 40 Z M88 33 L94 20 L82 26 Z" fill="#ee8fb8"/>
           <circle cx="88" cy="33" r="3" fill="#6fa7e0"/>
-          <path d="M63 50 L20 66 L63 60 Z" fill="#ef9a45"/>
-          <path d="M63 56 L30 63" stroke="#c9742b" stroke-width="1.2"/>
+          <path class="jaw" d="M63 57 L22 66 L63 62 Z" fill="#d9822f"/>
+          <path d="M63 50 L20 66 L63 58 Z" fill="#ef9a45"/>
           <circle cx="82" cy="61" r="4.5" fill="#ee8fb8" opacity=".45"/>
           <ellipse class="eye" cx="74" cy="47" rx="3.2" ry="3.8" fill="#2a1e3b"/>
           <circle cx="75.2" cy="45.6" r="1" fill="#fff"/>
@@ -460,7 +497,7 @@
     </svg>`;
   function setStork(el, cls) {
     const s = el && $('.stork', el); if (!s) return;
-    s.setAttribute('class', 'stork ' + cls);
+    s.setAttribute('class', 'stork ' + cls + (talking ? ' talking' : ''));
   }
 
   /* ---------------- jauge ---------------- */
@@ -580,7 +617,7 @@
     panel.dataset.lean = lean(d);
     setNeedle(value + d); boing(d);
     set(bub, `<span class="say">${tagFor(d)}${esc(note)}</span>`);
-    await wait(1100);
+    await Promise.all([say((d > 0 ? 'Fille ! ' : d < 0 ? 'Garçon ! ' : 'Hmm, je ne sais pas. ') + note), wait(1100)]);
 
     const c = CORRECTIONS[step];
     const a = c && answers.find(x => x.step === c.from);
@@ -591,11 +628,12 @@
       box.className = 'correction';
       set(box, `<strong>Attends ! Correction</strong>${esc(c.text)}`);
       bub.appendChild(box);
+      const spoken = say('Attends ! Correction ! ' + c.text);
       await wait(800);
       setNeedle(value - 2 * a.d); boing(-a.d); a.d = -a.d;
       setStork(ov, value > 0 ? 'look-girl' : value < 0 ? 'look-boy' : 'shrug');
       panel.dataset.lean = lean(value);
-      await wait(700);
+      await Promise.all([spoken, wait(700)]);
     }
 
     const last = step === Q.length - 1;
@@ -621,6 +659,7 @@
   }
 
   function renderChoice(item) {
+    say(item.q);
     set(stage, `<div class="screen">${header(item)}
       <h2>${esc(item.q)}</h2>
       <div class="options ${item.twoCol ? 'two' : ''}">
@@ -637,6 +676,7 @@
   }
 
   function renderSlider(item) {
+    say(item.q);
     set(stage, `<div class="screen">${header(item)}
       <h2>${esc(item.q)}</h2>
       <div class="slider-box">
@@ -657,6 +697,7 @@
   }
 
   function renderRing(item) {
+    say('Le test de l\'alliance ! Fais balancer une alliance au bout d\'un fil au-dessus de ton ventre. En ligne droite, c\'est un garçon. En rond, c\'est une fille. Ne bouge plus !');
     set(stage, `<div class="screen">${header(item)}
       <h2>Fais balancer une alliance au bout d'un fil au-dessus de ton ventre.</h2>
       <p class="muted">Madame Cigogne en a une toute prête. Si elle oscille en ligne droite, c'est un garçon. Si elle tourne en rond, c'est une fille. Ne bouge plus. Respire doucement.</p>
@@ -706,6 +747,7 @@
       'Je réconcilie des preuves contradictoires',
     ];
     drumroll(reduced ? 600 : 7600);
+    say('Laisse-moi réfléchir. Je consulte trois grands-mères et un chat. Je vérifie la phase de la lune. Je recompte les pipis de la nuit.');
     for (const l of lines) {
       const li = document.createElement('li'); li.textContent = l + '…'; log.appendChild(li);
       for (let k = 0; k < 3; k++) {
@@ -726,6 +768,7 @@
       <p>Après ${Q.length} questions, un test de l'alliance et deux corrections, la science est parfaitement équilibrée. Madame Cigogne donne sa langue au chat.</p>
       <p class="muted">Heureusement, quelqu'un connaît déjà la réponse. Elle est cachée dans le petit paquet que Madame Cigogne transporte.</p>
       <div class="actions"><button class="btn wide" id="openEnv" type="button">Ouvrir le paquet</button></div></div>`);
+    say('Exactement cinquante, cinquante ! Je donne ma langue au chat. Heureusement, la réponse est cachée dans mon petit paquet.');
     $('#openEnv', stage).addEventListener('click', () => { blip(); renderScratch(); });
   }
 
@@ -742,6 +785,7 @@
       <p class="hint" id="hint">Gratte avec ton doigt</p>
       <div class="actions" style="justify-content:center"><button class="btn ghost" id="skip" type="button">Révèle-le pour moi</button></div></div>`);
 
+    say('Gratte le sceau avec ton doigt !');
     const sc = $('#sc', stage), cv = $('#scr', stage), ctx = cv.getContext('2d', { willReadFrequently: true });
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const size = sc.clientWidth;
@@ -805,6 +849,7 @@
     fanfare();
     confetti(girl);
     await wait(1600);
+    setTimeout(() => say(`${girl ? 'C\'est une fille' : 'C\'est un garçon'} ! Félicitations${cfg.n ? ' ' + cfg.n : ''} !`), 400);
     const word = girl ? 'FILLE' : 'GARÇON';
     const msg = cfg.m ? esc(cfg.m).replace(/\n/g, '<br>') : (girl
       ? 'Notre petite fille arrive. J\'ai tellement hâte de la rencontrer avec toi.'
@@ -891,6 +936,7 @@
       <p class="muted">Réponds honnêtement aux ${Q.length} questions et surveille l'aiguille. À la fin, elle te dira si c'est un garçon ou une fille.</p>
       <div class="actions"><button class="btn wide" id="go" type="button">Commencer</button></div>
     </div>`);
+    say(`Bonjour ${cfg.n || ''} ! Je suis Madame Cigogne. Je livre les bébés depuis toujours, et je vais lire ton ventre.`);
     $('#go', stage).addEventListener('click', () => { blip(); render(); });
   }
 
