@@ -39,8 +39,8 @@ Then open <http://localhost:8000/>.
 - `baby-crawl.html` — the game.
 - `touch-controls.js` — optional on-screen joystick + Mom button for touch devices.
 
-## The Bump Oracle
+## Madame Cigogne
 
-`gender-reveal.html` is a separate little gender-reveal game: a tongue-in-cheek "oracle" quizzes the mum-to-be on pregnancy symptoms, swings a boy/girl needle around on made-up folklore, gives up at exactly 50/50, then hands over a scratch-off seal that reveals the answer with confetti.
+`gender-reveal.html` is a separate little gender-reveal game, in French. Madame Cigogne, the stork who delivers babies, quizzes the mum-to-be on pregnancy symptoms. After each answer she takes over the screen to ponder, turn towards "garçon" or "fille" and swing a needle around on made-up folklore, sometimes reversing an earlier verdict in a panic. She gives up at exactly 50/50, and the answer is hidden in the bundle she carries: a scratch-off seal that reveals it with confetti.
 
-The answer is never stored in the file. Open the page with no hash to get the setup form, which packs the baby's sex, names and an optional message into a scrambled code in the link's `#hash`. Send her that link.
+The answer is never stored in the file. Open the page with no hash to get the setup form: pick boy or girl, the names and an optional message, then either start the game on that device or copy a link whose `#hash` holds the same details in a scrambled code.
