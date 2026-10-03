@@ -750,7 +750,7 @@
     stage.innerHTML = `<div class="screen">
       <p class="eyebrow">For the one who knows · Setup</p>
       <h1>Make the secret link</h1>
-      <p class="muted">Fill this in privately. You'll get a link that hides the answer in a scrambled code, so nothing on the screen or in the address gives it away until the very end.</p>
+      <p class="muted">Fill this in privately. Then start the game on this phone and hand it to her. Nothing on screen gives the answer away until the very end.</p>
       ${error ? `<p class="err">${esc(error)}</p>` : ''}
       <form id="sf" autocomplete="off">
         <fieldset class="field"><legend>The baby is a…</legend>
@@ -762,7 +762,7 @@
         <div class="field"><label for="her">Her name</label><input type="text" id="her" maxlength="40" placeholder="e.g. Amira"></div>
         <div class="field"><label for="you">Your name (signs the message)</label><input type="text" id="you" maxlength="40" placeholder="e.g. Firas"></div>
         <div class="field"><label for="msg">A message shown after the reveal (optional)</label><textarea id="msg" maxlength="400" placeholder="Leave blank for a short default message"></textarea></div>
-        <button class="btn wide" type="submit">Create the link</button>
+        <button class="btn wide" type="submit">Get it ready</button>
       </form>
       <div id="out"></div>
     </div>`;
@@ -771,18 +771,26 @@
       const s = $('input[name=sex]:checked', stage)?.value;
       if (!s) return;
       const code = enc({ s, n: $('#her', stage).value.trim(), f: $('#you', stage).value.trim(), m: $('#msg', stage).value.trim() });
+      const cfgNew = dec(code);
+      let framed = true;
+      try { framed = window.self !== window.top; } catch {}
       const url = location.href.split('#')[0].split('?')[0] + '#' + code;
       $('#out', stage).innerHTML = `<div class="linkbox">
-        <strong>Her link is ready</strong>
+        <strong>Ready</strong>
+        <button class="btn wide" id="here" type="button">Start the game on this phone</button>
+        <p class="note">This clears the setup and opens the start screen, so you can hand her the phone. The answer only shows at the very end.</p>
+        ${framed ? '' : `<p class="note" style="margin-top:6px">Or send her this link to play on her own phone:</p>
         <code id="lnk">${esc(url)}</code>
-        <div class="actions" style="margin-top:4px"><button class="btn" id="copy" type="button">Copy link</button><a class="btn ghost" href="${esc(url)}" target="_blank" rel="noopener">Test it yourself</a></div>
-        <p class="note">Send this link to her, or open it on the phone you'll hand her. Testing it here shows the answer at the end, so do it when she's not around.</p>
+        <div class="actions" style="margin-top:4px"><button class="btn ghost" id="copy" type="button">Copy link</button></div>`}
       </div>`;
-      $('#copy', stage).addEventListener('click', async (ev) => {
+      $('#here', stage).addEventListener('click', () => { cfg = cfgNew; blip(); start(); window.scrollTo(0, 0); });
+      const cp = $('#copy', stage);
+      if (cp) cp.addEventListener('click', async (ev) => {
         const b = ev.currentTarget;
         try { await navigator.clipboard.writeText(url); b.textContent = 'Copied'; }
         catch { const r = document.createRange(); r.selectNodeContents($('#lnk', stage)); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = 'Selected. Copy it'; }
       });
+      $('#here', stage).scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
     });
   }
 
